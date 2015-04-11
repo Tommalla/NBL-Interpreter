@@ -1,0 +1,93 @@
+// New Better Language
+// This is an A* implementation.
+
+// Problemy:
+//	- Jak przekazujemy wartości? Wszystko jest wskaźnikiem? Czy chcemy referencje?
+// Nie chcemy swobodnego dostępu do pamięci, bo to złe. Wskaźniki oznaczamy * jak w C++.
+// Const istnieje.
+// Dynamiczne listotablice są częścią języka
+import Numbers;
+from IO import stdout;
+
+
+class Node T {
+	// No constructor specified - the default is issued.
+	T vertex;	// Default constructor of type T
+	int g = Numbers.MaxInt, h = numbers.MaxInt;
+
+modifiers:
+	vertex(T newVertex) {
+		stdout.write("Vertex changed from %s to %s" % (vertex, newVertex));
+		vertex = newVertex;
+	}
+};
+
+
+class MapVertex T {
+	MapVertex(Point p, Map* map) {
+		neighbours = map.getNeighbours(p);
+	}
+
+	const T value;
+
+protected:	// Completely inaccessible outside of the class.
+	Array (MapVertex*) neighbours;
+};
+
+
+class Map {
+	Map(int width, int height) {
+		matrix = [[MapVertex({x, y}, this) | y <- height] | x <- width]	// Python-like
+	}
+
+	Array (MapVertex *) getNeighbours(Point p) {
+		const Array Point dirs = [{-1, 0}, {0, -1}, {1, 0}, {0, 1}];
+		return Data.filter([p + d | d <- dirs], (\point -> point.x >= 0 && point.y < ));	// Haskell-like lambdas
+	}
+
+protected:	// Presence of this clause makes user-defined constructor obligatory.
+	int width;
+	int height;
+	Array (Array (MapVertex*)) matrix; 
+};
+
+
+class Point {
+	const int x;
+	const int y;
+
+operators:
+	// Operators which are not present are deleted.
+	+ default 	// Produces a new object of type Point which fields are filled with sums of the original operands.
+				// Default operators are always binary.
+	* default
+
+	- (Point a, Point b) {
+		return {a.x - b.x, a.y - b.y};	// {} operator tries to match the constructor of the expected type.
+	}
+
+	/ (Point b) {	// Both operator formats are permitted
+		return {b.x == 0 ? Math.sgn(this.x) * Numbers.MaxInt : b.x / this.x, b.y == 0 ? Math.sgn(this.y) * Numbers.MaxInt : b.y / this.y}
+	}
+
+	() () {	// This is the operator () which in this case takes no arguments. It 'executes' the point
+		stdout.write("(%d, %d)" % (x, y));
+	}
+
+	int operator[] (int i) {	// Syntax for operators returning non-trivial values.
+		if (i == 0)
+			return x;
+		else {
+			if (i == 1) {
+				return y;
+			} else {
+				throw RuntimeError("%d is not a valid coordinate id {0, 1}" % i);
+			}
+		}
+	}
+};
+
+
+int main(Array String args) {
+	// rozpakowywanie klas: let dsdas = dad in {}
+}
