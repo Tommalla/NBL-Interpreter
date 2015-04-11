@@ -1,0 +1,141 @@
+\documentclass[a4paper,10pt]{scrartcl}
+\usepackage{polski}
+\usepackage[utf8]{inputenc}
+\usepackage{listings}
+\lstset{language=C++}
+
+%opening
+\title{New Better Language (NBL)}
+\subtitle{Opis języka}
+\author{Tomasz Zakrzewski, tz336079}
+
+\begin{document}
+
+\maketitle
+
+\section{Skrócony opis}
+Głównym założeniem NBL jest być językiem podobnym do C++, ale wygodniejszym w użyciu. Podczas projektowania języka posiłkowałem się moją wiedzą
+na temat C++ z uwzględnieniem najnowszego standardu C++14 i spróbowałem stworzyć C++ w duchu ``czternastki'', ale nieobciążonego kompatybilnością
+wsteczną. W wielu miejscach języka można spotkać pomysły pożyczone z języków funkcyjnych - lambdy, wbudowany typ tablicowy, list comprehensions
+(na tablicach) itd. Dla zachowania spójności będę się starał znaleźć kompromis między łatwością wnioskowania o tych elementach właściwą jezykom funkcyjnym a sposobem
+działania oczekiwanym po języku imperatywnym.
+
+Ten dokument opisuje mocno założenia, ale sam nie jestem pewien jeszcze w 100\% konkretnej syntaksy, której chcę do realizacji tych funkcjonalności
+użyć (upewnię się zapewne w trakcie implementowania, ponieważ będę miał trochę więcej czasu na przemyślenie użyteczności, spójności oraz limitów
+wybranych rozwiązań). Z tego powodu mam gorącą prośbę, aby na składnię, szczególnie moich autorskich pomysłów w tym języku patrzeć trochę mniej
+wiążąco niż na realizowaną przezeń funkcjonalność. Bardzo mile widziane będą przeze mnie też wszelkie uwagi na temat tego jak pewne nieintuicyjne/
+niespójne elementy składni poprawić.
+
+\section{Standardowe konstrukcje}
+Do paczki z tym plikiem załączona jest gramatyka w notacji EBNF, opisująca znaczną część języka. Pozostałe (trywialne lub bardzo niestandardowe)
+konstrukcje wyjaśniam w tej sekcji.
+
+Wbudowane w język typy to: int, char, string, bool, wskaźnik, krotka oraz tablica. Więcej o tablicach piszę w osobnej poświęconej im sekcji.
+
+NBL posiada wsparcie dla obiektowości.
+
+\subsection{Wskaźniki}
+W odróżnieniu od C++, NBL nie posiada referencji. Dostępne są tylko zmienne oraz wskaźniki, przy czym programista nie dostaje dostępu do adresu
+wskazywanego przez wskaźnik. Wskaźniki są tylko abstrakcyjnymi dowiązaniami do jakichś isniejących zmiennych. Z języka usunięty jest też operator
+brania adresu (\&). Ze standardowych operatorów z C++ pozostaje jedynie dereferencja (*). Przypisanie zmiennych wskaźnikom odbywa się bez żadnych
+dodatkowych operatorów. Interpreter jest w stanie sam wywnioskować oczekiwany typ i spróbuje odpowiednio ustawić wskaźnik. Wskaźniki mogą być brane
+jedynie od lvalue.
+
+Uwaga notacyjna: W NBL wskaźnik jest częścią typu więc w dobrym guście uważam zapisywanie * przy typie zmiennej, na którą wskazuje wskaźnik, ale
+Interpreter ma pozwalać na dowolne ilości spacji między typem, gwiazdką i nazwą wskaźnika.
+
+\begin{lstlisting}
+int x = 5;
+int y = 10;
+int* p1 = x;
+int* p2 = y;
+IO.stdout.writeln(``%d %d'' % (*p1, *p2)); // 5 6
+p1 = y;
+p2 = p1; // Równoważne p2 = y lub p2 = *p1;
+IO.stdout.writeln(``%d %d'' % (*p1, *p2)); // 6 6
+int *p = p1 + p2; // Błąd interpretera 
+                  //(wartość p1 jest niezdefiniowana).
+int *p = *p1 + *p2; // Błąd interpretera 
+                    // (*p1 + *p2 jest rvalue).
+\end{lstlisting}
+
+Każdy wskaźnik może też przyjąć specjalną wartość nullptr. W szczególności dla dowolnej zmiennej nullptr spełnia:
+\begin{lstlisting}
+nullptr == nullptr && nullptr != zmienna
+\end{lstlisting}
+
+Przy takim modelu, programista ma duży problem, aby ``strzelić sobie w stopę'' (czyli jak w Javie), ale nie jest pozbawiony podstawowego narzędzia,
+jakim są wskaźniki (uff, jednak nie jak w Javie!). W szczególności implementacja swap w NBL wygląda następująco:
+\begin{lstlisting}
+swap T (T* a, T* b) {
+  T c = *a;
+  *a = *b;
+  *b = c; 
+}
+\end{lstlisting}
+
+W finalnej wersji będę jeszcze rozważał jakąś formę operatora new. Nie będzie delete, pamięć będzie zwalniana do interpretera w momencie, kiedy
+ostatni wskaźnik na dane dane zniknie ze scope'a.
+
+\subsection{Krotka}
+Mutowalny (w sensie wartości przechowywanych pod współrzędnymi) typ. Krotka danej długości danych typów sama stanowi typ, co oznacza, że nie można
+np. przypisać parze intów pary stringów (chyba, że w finalnym języku dam radę zrobić implicit konwersje i odpowiednia konwersja będzie istniała).
+
+Składnia - do przemyślenia. Na pewno będzie się dało robić akcesory jak w tablicy ([numer]).
+
+\subsection{Tablice}
+(Array, zachowuje się jak tablica, ale wiele operacji na niej można wykonać
+używając składni dla list w np. Haskellu). Implementacja tablic ma pozwalać przynajmniej na używanie jej jak std::vector z C++ (zamortyzowany stały
+czas rozszerzania tablicy ``w prawo''), jeśli wystarczy czasu chciałbym też aby dało się szybko dodawać i usuwać elementy z przodu (jak w deque).
+
+Tablica jest typem szablonowym, może przechowywać dowolny typ, np.:
+\begin{lstlisting}
+Array int arr;
+arr.push_back(2);
+arr += [3, 4];
+arr = [i | i <- [0..1]] + arr;
+IO.stdout.writeln(``%s'', arr);	// Wypisuje [0, 1, 2, 3, 4]
+\end{lstlisting}
+
+\subsection{Obiektowość}
+Klasy, dziedziczenie. Istnieje tylko widoczność publiczna i chroniona (protected). 
+
+\subsubsection{Uniformowy sposób dostępu do składowych}
+Język zapewnia automatyczne gettery i settery do publicznych atrybutów klas. Wszelkie atrybuty, do których robilibyśmy settery i gettery w C++, a
+same atrybuty byłyby prywatne, w NBL powinny być publiczne i korzystać z uniformowego dostępu do składowych.
+
+Każda klasa może posiadać label modifiers:, poniżej którego występują modyfikatory w formacie:
+\begin{lstlisting}
+nazwa_pola(typ nowa_wartość) {
+  // kod własny
+}
+\end{lstlisting}
+
+oraz akcesory (accessors):
+\begin{lstlisting}
+typ_zwracany nazwa_pola {
+  kod własny
+}
+\end{lstlisting}
+
+Dla zilustrowania działania, załóżmy na chwilę, że mamy dwie klasy, A oraz B. Obie mają pole int x, przy czym A ma zdefiniowany modyfikator i
+akcesor dla x i obie te metody wypisują na konsolę aktualną wartość x z wykrzyknikiem na końcu. Wtedy poniższy kod ilustruje dobrze działanie
+tego mechanizmu:
+\begin{lstlisting}
+A a; // Deklarujemy obiekt a klasy A.
+B b; // Dekl. obiekt b klasy B.
+a.x = 5; // Wywołany zostanie modyfikator x z argumentem 5.
+b.x = 6;
+IO.stdout.writeln(``%d %d'', a.x, b.x); 
+// Zauważmy, że wywoływany jest akcesor x z A.
+\end{lstlisting}
+
+Powyższy kod wypisze:
+\begin{lstlisting}
+5!
+5!
+5 6
+\end{lstlisting}
+
+
+\end{document}
