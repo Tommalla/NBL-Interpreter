@@ -1,0 +1,34 @@
+/* Tomasz Zakrzewski, tz336079
+ * The simple NBL program.
+ * This code is completely and utterly pointless.
+ */
+
+Int foo(const Int a, Int b) {
+	Int x = 5;
+	return a - 3 + (x - 2) * b;
+}
+
+Void ptrFunc(const Int* p) {
+	String* p1;
+	return;
+}
+
+Int main() {
+	Int x = 0;
+
+	while (x != foo(3, x)) {
+		String str = "Legia Pany";
+		Int i;
+		for (i = 0; i < 42; ++i) {
+			str += "\n" + str;
+		}
+
+		x = foo(x, x);
+
+		if ((x > 1024) == true) {
+			break;
+		}
+	}
+
+	return foo(2, x) == 1 ? 1 : 2;
+}

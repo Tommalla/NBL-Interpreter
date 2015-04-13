@@ -1,0 +1,190 @@
+-- Tomasz Zakrzewski, tz336079
+-- 2015, NBL
+
+entrypoints Program, Stmt, Exp;
+
+Progr.  Program ::= [ExternalDeclaration] ;
+
+-- Declarations
+
+(:[]).    [ExternalDeclaration] ::= ExternalDeclaration;
+(:).      [ExternalDeclaration] ::= ExternalDeclaration [ExternalDeclaration];
+
+Func.  ExternalDeclaration ::= [DeclarationSpecifier] Declarator CompoundStatement;
+Global. ExternalDeclaration ::= Decl;
+
+Declarators.   Decl ::= [DeclarationSpecifier] [InitDeclarator] ";" ;
+
+(:[]).    [Decl] ::= Decl;
+(:).      [Decl] ::= Decl [Decl];  
+
+(:[]).  [DeclarationSpecifier] ::= DeclarationSpecifier;
+(:).    [DeclarationSpecifier] ::= DeclarationSpecifier [DeclarationSpecifier];
+
+Type.     DeclarationSpecifier ::= TypeSpecifier;
+SpecProp. DeclarationSpecifier ::= TypeQualifier;
+
+(:[]).   [InitDeclarator] ::= InitDeclarator;
+(:).     [InitDeclarator] ::= InitDeclarator "," [InitDeclarator];
+
+PureDecl.  InitDeclarator ::= Declarator;
+InitDecl.  InitDeclarator ::= Declarator "=" Initializer;
+
+
+TypeVoid.        TypeSpecifier ::= "Void";
+TypeChar.        TypeSpecifier ::= "Char";
+TypeInt.         TypeSpecifier ::= "Int";
+TypeDouble.      TypeSpecifier ::= "Double";
+TypeBool.		 TypeSpecifier ::= "Bool";
+TypeString.	  	  TypeSpecifier ::= "String";
+-- TODO
+-- TypeArray.	      TypeSpecifier ::= "Array" TemplateParams;
+-- TypeTuple.       TypeSpecifier ::= "Tuple" TemplateParams;
+-- TypeClass.       TypeSpecifier ::= ClassSpecifier;
+
+Const.		TypeQualifier ::= "const" ;
+
+(:[]).  [SpecQual] ::= SpecQual ;
+(:).    [SpecQual] ::= SpecQual [SpecQual];
+
+TypeSpec.  SpecQual ::= TypeSpecifier;
+QualSpec.  SpecQual ::= TypeQualifier;
+
+BeginPointer.   Declarator ::= Pointer DirectDeclarator;
+NoPointer.      Declarator ::= DirectDeclarator;
+
+Name.        DirectDeclarator ::= Ident;
+ParenthesizedDecl.   DirectDeclarator ::= "(" Declarator ")";
+ParamFuncDecl.  DirectDeclarator ::= DirectDeclarator "(" ParameterDeclarations ")";
+EmptyFuncDecl.  DirectDeclarator ::= DirectDeclarator "(" ")";
+
+Point.          Pointer ::= "*" ;
+
+
+(:[]).   [TypeQualifier] ::= TypeQualifier;
+(:).     [TypeQualifier] ::= TypeQualifier [TypeQualifier];
+
+ParamDecl.     ParameterDeclarations ::= ParameterDeclaration;                   
+MoreParamDecl. ParameterDeclarations ::= ParameterDeclarations "," ParameterDeclaration;
+
+OnlyType.      ParameterDeclaration ::= [DeclarationSpecifier];
+TypeAndParam.  ParameterDeclaration ::= [DeclarationSpecifier] Declarator;
+
+(:[]).   [Ident] ::= Ident;
+(:).     [Ident] ::= Ident "," [Ident];
+
+InitExpr.    Initializer ::= Exp2;
+
+PlainType.    TypeName ::= [SpecQual];
+PointerType.  TypeName ::= [SpecQual] Pointer;
+
+-- Statements
+
+CompS.    Stmt ::= CompoundStatement;
+ExprS.    Stmt ::= ExpressionStatement;
+CtlS.     Stmt ::= ControlStatement;
+LoopS.    Stmt ::= LoopStatement;
+JumpS.    Stmt ::= JumpStatement;
+
+EmptyComp.   CompoundStatement ::= "{" "}";
+StmtComp.   CompoundStatement ::= "{" [Stmt] "}";
+DeclComp. CompoundStatement ::= "{" [Decl] "}";
+DeclStmtComp.  CompoundStatement ::= "{" [Decl] [Stmt] "}";
+
+ExtraSemicolon.   ExpressionStatement ::= ";";
+HangingExp.   ExpressionStatement ::= Exp ";";
+
+IfThen.    ControlStatement ::= "if" "(" Exp ")" Stmt;
+IfThenElse.    ControlStatement ::= "if" "(" Exp ")" Stmt "else" Stmt;
+
+LoopWhile.   LoopStatement ::= "while" "(" Exp ")" Stmt;
+LoopDoWhile.   LoopStatement ::= "do" Stmt "while" "(" Exp ")" ";";
+LoopForTwo. LoopStatement ::= "for" "(" ExpressionStatement ExpressionStatement ")" Stmt;
+LoopForThree.  LoopStatement ::= "for" "(" ExpressionStatement ExpressionStatement Exp ")" Stmt;
+
+Continue.   JumpStatement ::= "continue" ";";
+Break. JumpStatement ::= "break" ";";
+ReturnVoid.  JumpStatement ::= "return" ";";
+ReturnVal.  JumpStatement ::= "return" Exp ";";
+
+
+(:[]).   [Stmt] ::= Stmt ;
+(:).     [Stmt] ::= Stmt [Stmt];
+
+ValTrue.	BoolConstant ::= "true";
+ValFalse.   BoolConstant ::= "false";
+
+-- rvalues first:
+ExpAssign.     Exp2  ::= Exp13 AssignmentOperator Exp2;
+ExpCondition.  Exp3  ::= Exp4 "?" Exp ":" Exp3;
+ExpOr.        Exp4  ::= Exp4 "||" Exp5;
+ExpAnd.       Exp5  ::= Exp5 "&&" Exp6;
+ExpEq.         Exp7  ::= Exp7 "==" Exp8;
+ExpNeq.        Exp7  ::= Exp7 "!=" Exp8;
+ExpLt.      	Exp8 ::= Exp8 "<" Exp9;
+ExpGt.     		Exp8 ::= Exp8 ">" Exp9;
+ExpLe.         Exp8 ::= Exp8 "<=" Exp9;
+ExpGe.         Exp8 ::= Exp8 ">=" Exp9;
+ExpPlus.       Exp10 ::= Exp10 "+" Exp11;
+ExpMinus.      Exp10 ::= Exp10 "-" Exp11;
+ExpTimes.      Exp11 ::= Exp11 "*" Exp12;
+ExpDiv.        Exp11 ::= Exp11 "/" Exp12;
+ExpMod.        Exp11 ::= Exp11 "%" Exp12;
+-- lvalues start here:
+ExpPreInc.     Exp13 ::= "++" Exp13;
+ExpPreDec.     Exp13 ::= "--" Exp13;
+ExpPreOp.      Exp13 ::= UnaryOperator Exp12;
+ExpFunc.       Exp14 ::= Exp14 "(" ")";
+ExpFuncArg.    Exp14 ::= Exp14 "(" [Exp2] ")";
+ExpPostInc.    Exp14 ::= Exp14 "++";
+ExpPostDec.    Exp14 ::= Exp14 "--";
+ExpVar.        Exp15 ::= Ident;
+ExpConstant.      Exp15 ::= Constant;
+ExpString.     Exp15 ::= String;
+
+ExpChar.         Constant ::= Char;
+ExpDouble.      Constant ::= Double;
+ExpInt.          Constant ::= Integer;
+ExpBool.		Constant ::= BoolConstant;
+
+internal Edouble. Constant ::= Double;
+
+Especial. Constant_expression ::= Exp3;
+
+_. Exp   ::= Exp2;
+_. Exp2  ::= Exp3;
+_. Exp3  ::= Exp4;
+_. Exp4  ::= Exp5;
+_. Exp5  ::= Exp6;
+_. Exp6  ::= Exp7;
+_. Exp7  ::= Exp8;
+_. Exp8  ::= Exp9;
+_. Exp9  ::= Exp10;
+_. Exp10 ::= Exp11;
+_. Exp11 ::= Exp12;
+_. Exp12 ::= Exp13;
+_. Exp13 ::= Exp14;
+_. Exp14 ::= Exp15;
+_. Exp15 ::= "(" Exp ")";
+
+Indirection. UnaryOperator ::= "*";
+Plus.        UnaryOperator ::= "+";
+Negative.    UnaryOperator ::= "-";
+Complement.  UnaryOperator ::= "~";
+Negation.  	 UnaryOperator ::= "!";
+
+(:[]).   [Exp2] ::= Exp2;
+(:).     [Exp2] ::= Exp2 "," [Exp2];
+
+Assign.       AssignmentOperator ::= "=";
+AssignMul.    AssignmentOperator ::= "*=";
+AssignDiv.    AssignmentOperator ::= "/=";
+AssignMod.    AssignmentOperator ::= "%=";
+AssignAdd.    AssignmentOperator ::= "+=";
+AssignSub.    AssignmentOperator ::= "-=";
+AssignAnd.    AssignmentOperator ::= "&=";
+AssignXor.    AssignmentOperator ::= "^=";
+AssignOr.     AssignmentOperator ::= "|=";
+
+comment "/*" "*/";
+comment "//";
