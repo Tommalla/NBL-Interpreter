@@ -3,3 +3,8 @@
 *.pdf
 *.log
 *.backup
+
+# Haskell/others
+*.hi
+*.o
+*.bak
