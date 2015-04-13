@@ -97,7 +97,8 @@ swap T (T* a, T* b) {
 W finalnej wersji będę jeszcze rozważał jakąś formę operatora new. Nie będzie delete, pamięć będzie zwalniana do interpretera w momencie, kiedy
 ostatni wskaźnik na dane zniknie ze scope'a.
 
-Do wyłuskiwania pól/metod obiektu pod wskaźnikiem służy znany z C++ operator -> .
+Do wyłuskiwania pól/metod obiektu pod wskaźnikiem służy znany z C++ operator '$->$' (w przypadku obiektu [nie-wskaźnika] pozostaje standardowy 
+operator wyłuskania '.').
 
 Aby uzyskać takie działanie języka, musiałem jednak zrezygnować ze wskaźników wyższego poziomu niż 1. Dzięki temu wnioskowanie o typach przez 
 interpreter jest jednoznaczne (w sytuacji, gdy interpretej oczekuje wskaźnika i dostanie wskaźnik, nie istnieje pytanie, czy należy wziąć adres,
@@ -107,7 +108,7 @@ czy użyć adresu spod wskaźnika).
 Mutowalny (w sensie wartości przechowywanych pod współrzędnymi) typ. Krotka danej długości danych typów sama stanowi typ, co oznacza, że nie można
 np. przypisać parze intów pary stringów (chyba, że w finalnym języku dam radę zrobić implicit konwersje i odpowiednia konwersja będzie istniała).
 
-Składnia - do przemyślenia. Na pewno będzie się dało robić akcesory jak w tablicy ([numer]).
+Składnia - do przemyślenia. Na pewno będzie się dało robić akcesory jak w tablicy ([numer]) oraz rozpakowywać krotki letem (wspomniany dalej).
 
 \subsection{Tablice}
 (Array, zachowuje się jak tablica, ale wiele operacji na niej można wykonać
@@ -165,8 +166,10 @@ Powyższy kod wypisze:
 
 \subsubsection{Rozpakowywanie i wiązanie identyfikatorów}
 Do języka chcę wprowadzić popularną w językach funkcyjnych konstrukcję let ... in, która będzie pełniła 2 funkcje:
-- analogiczną do {} w C++ lub with w Pythonie - ograniczała życie jakiejś zmiennej tylko do danego bloku kodu (przy okazji)
-- rozpakowywanie obiektów.
+\begin{itemize}
+  \item analogiczną do \{\} w C++ lub with w Pythonie - ograniczała życie jakichś zmiennych tylko do danego bloku kodu (przy okazji),
+  \item rozpakowywanie obiektów.
+\end{itemize}
 
 O ile pierwsza funkcjonalność jest dobrze znana i dosyć prosta, to ta druga jest dosyć ciekawa. Będzie można oczywiście rozpakować w ten sposób
 krotki. Ponadto, będzie można rozpakowywać obiekty klas - interpreter spróbuje wtedy dopasować do kolejnych rozpakowywanych elementów kolejne pola
@@ -268,6 +271,7 @@ Powyższy kod wypisze 8 0.
 \subsubsection{Ogólnie}
 Operatory (poza () oraz []) można deklarować też poza klasami. Ich operandami mogą być obiekty klas jak i typy wbudowane. W szczególności, można np.
 przedefioniować operator + dla dwóch intów. Wartość zwracana może być dowolna, najwyżej nastąpi błąd interpretacji wyrażenia (np. dodawanie inta i
-double'a może zwracać stringa).
+double'a może zwracać stringa). Docelowo chciałbym też wprowadzić możliwość deklarowania nowych operatorów, ale to jest cel opcjonalny jeśli
+wystarczy mi czasu.
 
 \end{document}
