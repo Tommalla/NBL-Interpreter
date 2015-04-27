@@ -8,3 +8,11 @@
 *.hi
 *.o
 *.bak
+dist
+
+# BNFC
+*.x
+*.y
+*NBL.hs
+ErrM.hs
+DocNBL.txt
