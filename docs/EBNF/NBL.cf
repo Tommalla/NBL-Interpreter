@@ -3,7 +3,7 @@
 
 entrypoints Program, Stmt, Exp;
 
-Progr.  Program ::= [ExternalDeclaration] ;
+Prog.  Program ::= [ExternalDeclaration] ;
 
 -- Declarations
 
