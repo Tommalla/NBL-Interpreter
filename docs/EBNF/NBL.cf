@@ -1,9 +1,9 @@
 -- Tomasz Zakrzewski, tz336079
 -- 2015, NBL
 
-entrypoints Program, Stmt, Exp;
+entrypoints Prog, Stmt, Exp;
 
-Prog.  Program ::= [ExternalDeclaration] ;
+Program.  Prog ::= [ExternalDeclaration] ;
 
 -- Declarations
 
@@ -29,7 +29,6 @@ SpecProp. DeclarationSpecifier ::= TypeQualifier;
 
 PureDecl.  InitDeclarator ::= Declarator;
 InitDecl.  InitDeclarator ::= Declarator "=" Initializer;
-
 
 TypeVoid.        TypeSpecifier ::= "Void";
 TypeChar.        TypeSpecifier ::= "Char";
@@ -80,6 +79,7 @@ PointerType.  TypeName ::= [SpecQual] Pointer;
 
 -- Statements
 
+DeclS.	  Stmt ::= Decl;
 CompS.    Stmt ::= CompoundStatement;
 ExprS.    Stmt ::= ExpressionStatement;
 CtlS.     Stmt ::= ControlStatement;
@@ -88,8 +88,6 @@ JumpS.    Stmt ::= JumpStatement;
 
 EmptyComp.   CompoundStatement ::= "{" "}";
 StmtComp.   CompoundStatement ::= "{" [Stmt] "}";
-DeclComp. CompoundStatement ::= "{" [Decl] "}";
-DeclStmtComp.  CompoundStatement ::= "{" [Decl] [Stmt] "}";
 
 ExtraSemicolon.   ExpressionStatement ::= ";";
 HangingExp.   ExpressionStatement ::= Exp ";";

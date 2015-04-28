@@ -15,6 +15,9 @@ Void ptrFunc(const Int* p) {
 
 Int main() {
 	Int x = 0;
+	foo(x, 3);
+	Int y = 2;
+	foo(x, y);
 
 	while (x != foo(3, x)) {
 		String str = "Legia Pany";

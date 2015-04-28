@@ -12,12 +12,12 @@ import AbsNBL
 import ErrM
 
 
-interpret :: Program -> String
+interpret :: Prog -> String
 interpret e = "TODO"
 
 
 run :: String -> (String, Integer)
-run s = case pProgram (myLexer s) of
+run s = case pProg (myLexer s) of
     Bad err -> ("Parsing error: " ++ err, -1)
     Ok e -> (interpret e, 0)	-- TODO
 
