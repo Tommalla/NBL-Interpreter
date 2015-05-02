@@ -1,7 +1,7 @@
 -- Tomasz Zakrzewski, tz336079
 -- 2015, NBL
 
-entrypoints Prog, Stmt, Exp;
+entrypoints Prog, Stmt;
 
 Program.  Prog ::= [ExternalDeclaration] ;
 
