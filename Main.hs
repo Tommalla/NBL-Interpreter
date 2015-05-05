@@ -3,7 +3,7 @@
  -}
 module Main where
 
-import Control.Monad.State
+import Control.Monad.Trans.State
 import Data.Map
 
 import LexNBL
@@ -13,7 +13,8 @@ import PrintNBL
 import AbsNBL
 import ErrM
 
-data DataType = TVoid | TChar Char | TInt Int | TDouble Double | TBool Bool | TString String | Pointer DataType
+data DataType = TVoid | TChar Char | TInt Int | TDouble Double | TBool Bool | TString String | TPointer DataType | 
+		TConst DataType
 
 data ParseResult = ParseOk | Error String
 type Loc = Int
@@ -28,31 +29,40 @@ newloc :: MemState -> Loc
 newloc memState = (maximum (keys memState)) + 1
 
 
-allocateDirect :: DirectDeclarator -> GlobalState
-allocateDirect (Name ident) = do
+-- Returns an initialized object of DataType based on the declaration specifiers.
+createDefaultValue :: [DeclarationSpecifier] -> DataType
+createDefaultValue (h:t) = case h of
+	(SpecProp (Const)) -> (TConst (createDefaultValue t)) 
+	_ -> undefined
+createDefaultValue [(Type (TypeVoid))] = TVoid
+createDefaultValue [(Type (TypeChar))] = (TChar '\0')
+createDefaultValue [(Type (TypeInt))] = (TInt 0)
+createDefaultValue [(Type (TypeDouble))] = (TDouble 0.0)
+createDefaultValue [(Type (TypeBool))] = (TBool False)
+createDefaultValue [(Type (TypeString))] = (TString "")
+
+
+allocateDirect :: DirectDeclarator -> [DeclarationSpecifier] -> GlobalState
+allocateDirect (Name ident) specifiers = do
 	(env, state) <- get
 	-- FIXME conflicts?
 	let loc = newloc(state)
-	-- TODO types
-	put (insert ident loc env, insert loc (TInt 0) state)
+	put (insert ident loc env, insert loc (createDefaultValue specifiers) state)
 	return ParseOk
-allocateDirect _ = undefined
+allocateDirect _ _ = undefined
 
 
-allocateDeclarator :: InitDeclarator -> GlobalState
-allocateDeclarator (PureDecl declarator) = do
+allocateDeclarator :: InitDeclarator -> [DeclarationSpecifier] -> GlobalState
+allocateDeclarator (PureDecl declarator) specifiers = do
 	case declarator of
-		NoPointer directDeclarator -> allocateDirect directDeclarator
+		NoPointer directDeclarator -> allocateDirect directDeclarator specifiers
 		_ -> undefined
-allocateDeclarator _ = undefined
-
-
-interpretDecl :: Decl -> GlobalState
-interpretDecl (Declarators specifiers initDeclarators) = allocateDeclarator (head initDeclarators)
+allocateDeclarator _ _ = undefined
 
 
 interpretStmt :: Stmt -> GlobalState
-interpretStmt (DeclS decl) = interpretDecl decl
+-- TODO do some sort of a fold on state here.
+interpretStmt (DeclS (Declarators specifiers initDeclarators)) = allocateDeclarator (head initDeclarators) specifiers
 interpretStmt _ = undefined
 
 
