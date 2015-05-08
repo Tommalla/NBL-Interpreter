@@ -14,6 +14,8 @@ import PrintNBL
 import AbsNBL
 import ErrM
 
+import TypeChecking
+
 
 data DataType = TVoid | TChar Char | TInt Integer | TDouble Double | TBool Bool | TString String | TPointer DataType | 
 		TConst DataType
@@ -115,6 +117,8 @@ interpretStmt (CompS (StmtComp statements)) = do
 interpretStmt _ = return (Error "undefined statement")
 
 
+-- TODO change run to work on programs - need standard entry point and functions.
+-- Then plug typecheck here.
 run :: String -> (String, (Env, MemState))
 run s = case pStmt (myLexer s) of
     Bad err -> ("Parsing error: " ++ err, (empty, empty))
