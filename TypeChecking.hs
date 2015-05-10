@@ -3,6 +3,8 @@
  -}
 module TypeChecking (types) where
 
+import Control.Monad.State
+import Data.Map
 
 import LexNBL
 import ParNBL
@@ -12,17 +14,31 @@ import AbsNBL
 import ErrM
 
 
-type TypeEval = Maybe Int   -- TODO a monad-based type here just as in the interpreter
-					 		-- We need some sort of a map of identifiers to types.
+data DataType = Raw TypeSpecifier | Const DataType | Pointer DataType
+data TypeCheckResult = Ok | Failed
+		deriving (Eq)
+type Env = Map Ident DataType
+type PEnv = Map Ident (DataType, [DataType]) -- The tuple is the return type and then params types.
+type TypeEval = State (Env, PEnv) TypeCheckResult
 
 
-getProgTypes :: Prog -> TypeEval
-getProgTypes = undefined
+squashResults :: [TypeCheckResult] -> TypeCheckResult
+squashResults results = if (all (== TypeChecking.Ok) results) then TypeChecking.Ok else TypeChecking.Failed
+
+
+validateExternalDeclaration :: ExternalDeclaration -> TypeEval
+validateExternalDeclaration (Global (Declarators declarationSpecifiers initDeclarators)) = undefined
+
+
+validateProg :: Prog -> TypeEval
+validateProg (Program externalDeclarations) = do
+	results <- mapM (validateExternalDeclaration) externalDeclarations
+	return (squashResults results)
 
 
 types :: Prog -> Bool
-types prog = case getProgTypes prog of
-	Just _ -> True
-	Nothing -> False
+types prog = case fst (runState (validateProg prog) (empty, empty)) of
+	TypeChecking.Ok -> True
+	TypeChecking.Failed -> False
 
 

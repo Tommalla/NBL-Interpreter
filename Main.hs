@@ -73,7 +73,7 @@ allocateDeclarator (PureDecl declarator) specifiers = do
 	case declarator of
 		NoPointer directDeclarator -> allocateDirect directDeclarator specifiers
 		_ -> return (Error "Not a NoPointer")
-allocateDeclarator _ _ = return (Error "Wut?")
+allocateDeclarator _ _ = return (Error "undefined")
 
 
 interpretExp :: Exp -> ExpState
