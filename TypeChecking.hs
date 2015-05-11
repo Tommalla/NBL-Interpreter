@@ -49,21 +49,35 @@ validateDirect (Name ident) specifiers = do
 validateDirect _ _ = throwError "This type of allocation is not supported yet."
 
 
+-- TODO this function needs to validate the types inside the instructions in CompoundStatement.
+validateFunctionDeclaration :: [DeclarationSpecifier] -> Declarator -> CompoundStatement -> TypeEval
+validateFunctionDeclaration declarationSpecifiers (NoPointer (ParamFuncDecl (Name ident) parameterDeclarations)) 
+		compoundStatement = throwError "Functions with parameters are not supported yet."
+validateFunctionDeclaration declarationSpecifiers (NoPointer (EmptyFuncDecl (Name ident))) compoundStatement = do
+	(env, penv) <- lift $ get
+	let returnType = getType declarationSpecifiers
+	if (isNothing returnType) then
+		throwError "Incorrect function return type!"
+	else do
+		lift $ put (env, insert ident (fromJust returnType, []) penv)
+		return TypeChecking.Ok
+validateFunctionDeclaration _ _ _ = throwError "Malformed function declaration. "
+
+
 validateExternalDeclaration :: ExternalDeclaration -> TypeEval
-validateExternalDeclaration (Global (Declarators declarationSpecifiers initDeclarators)) = do
-	return TypeChecking.Ok
-validateExternalDeclaration _ = do
-	return TypeChecking.Ok
+validateExternalDeclaration (Global (Declarators declarationSpecifiers initDeclarators)) = return TypeChecking.Ok
+validateExternalDeclaration (Func declarationSpecifiers declarator compoundStatement) = 
+	validateFunctionDeclaration declarationSpecifiers declarator compoundStatement
+validateExternalDeclaration _ = throwError "This type of external declaration is not supported yet."
 
 
 validateProg :: Prog -> TypeEval
 validateProg (Program externalDeclarations) = do
-	results <- mapM (validateExternalDeclaration) externalDeclarations
+	mapM_ (validateExternalDeclaration) externalDeclarations
 	return TypeChecking.Ok
 
 
 types :: Prog -> Bool
 types prog = case fst (runState (runExceptT (validateProg prog)) (empty, empty)) of
 	(Right _) -> True
-	(Left _) -> False	-- TODO We should be returning an error from here.
-
+	(Left _) -> False	-- TODO We should be returning an error from here. The type of 'types' needs to change.
