@@ -34,7 +34,7 @@ data ParseResult = ParseOk | Error String
 type Loc = Int
 type Env = Map Ident Loc
 type Store = Map Loc DataType
-type PEnv = Map Ident [Ident]	-- The list is the list of argument names.
+type PEnv = Map Ident ([Ident], CompoundStatement, Env)	-- The list is the list of argument names.
 type StateType = (Env, PEnv, Store)
 type GlobalState = ExceptT String (State StateType) ParseResult
 type ExpState = ExceptT String (State StateType) Exp
@@ -123,9 +123,19 @@ executeStmt (CompS (StmtComp statements)) = do
 executeStmt _ = throwError "This type of statement is not supported yet."
 
 
+executeFunctionDeclaration :: Declarator -> CompoundStatement -> GlobalState
+executeFunctionDeclaration (NoPointer (ParamFuncDecl (Name ident) parameterDeclarations)) compoundStatement = 
+	throwError "Functions with parameters are not supported yet."
+executeFunctionDeclaration (NoPointer (EmptyFuncDecl (Name ident))) compoundStatement = do
+	(env, penv, store) <- lift $ get
+	lift $ put (env, insert ident ([], compoundStatement, env) penv, store)
+	return ParseOk
+executeFunctionDeclaration declarator _ = throwError "Malformed function declaration. "
+
+
 executeExternalDeclaration :: ExternalDeclaration -> GlobalState
-executeExternalDeclaration (Func declarationSpecifiers declarator compoundStatement) = 
-	throwError "Function declaration not supported yet."
+executeExternalDeclaration (Func declarationSpecifiers declarator compoundStatement) =
+	executeFunctionDeclaration declarator compoundStatement
 executeExternalDeclaration (Global (Declarators specifiers initDeclarators)) = do
 	mapM_ (\initDeclarator -> allocateDeclarator initDeclarator specifiers) initDeclarators
 	return ParseOk 
@@ -145,7 +155,13 @@ run s = case pProg (myLexer s) of
     		("Typechecking failed", (empty, empty, empty))
     	else
     		case (runState (runExceptT (executeProg p)) (empty, empty, empty)) of
-    			((Right _), mem) -> ("Run successful", mem)
+    			((Right _), (e, penv, store)) -> 
+    				let mainFunc = Data.Map.lookup (Ident "main") penv in
+    					if (isNothing mainFunc) then ("No main declared.", (e, penv, store)) else
+							let (params, compoundStatement, env) = fromJust mainFunc in
+								case (runState (runExceptT (executeStmt (CompS compoundStatement))) (env, penv, store)) of
+									((Right _), mem) -> ("Run successful", mem)
+									((Left str), mem) -> ("Runtime error: " ++ str, mem)
     			((Left str), mem) -> ("Runtime error: " ++ str, mem)
 
 
