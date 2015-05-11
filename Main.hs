@@ -33,14 +33,15 @@ data ParseResult = ParseOk | Error String
 	deriving (Eq)
 type Loc = Int
 type Env = Map Ident Loc
-type MemState = Map Loc DataType
--- type PEnv = Map Ident TODO
-type GlobalState = ExceptT String (State (Env, MemState)) ParseResult
-type ExpState = ExceptT String (State (Env, MemState)) Exp
+type Store = Map Loc DataType
+type PEnv = Map Ident [Ident]	-- The list is the list of argument names.
+type StateType = (Env, PEnv, Store)
+type GlobalState = ExceptT String (State StateType) ParseResult
+type ExpState = ExceptT String (State StateType) Exp
 
 
 -- Returns a new location
-newloc :: MemState -> Loc
+newloc :: Store -> Loc
 newloc memState = (safeMaximum (keys memState)) + 1
 	where
 		safeMaximum :: [Loc] -> Loc 
@@ -68,10 +69,10 @@ createDefaultValue (h:t) = if (not (Prelude.null t)) then
 
 allocateDirect :: DirectDeclarator -> [DeclarationSpecifier] -> GlobalState
 allocateDirect (Name ident) specifiers = do
-	(env, state) <- lift $ get
+	(env, penv, state) <- lift $ get
 	-- FIXME conflicts?
 	let loc = newloc state
-	lift $ put (insert ident loc env, insert loc (createDefaultValue specifiers) state)
+	lift $ put (insert ident loc env, penv, insert loc (createDefaultValue specifiers) state)
 	return ParseOk
 allocateDirect _ _ = throwError "This type of allocation is not supported yet."
 
@@ -90,17 +91,17 @@ executeExp (ExpAssign exp1 assignmentOperator exp2) = do
 	res2 <- executeExp exp2
 	case res1 of
 		ExpVar ident -> do
-				(mem, state) <- lift $ get
+				(env, penv, state) <- lift $ get
 				let val = case res2 of 
 					-- TODO pointers
 					ExpConstant (ExpInt v) -> TInt v
 					_ -> undefined
-				let loc = getLoc ident mem
+				let loc = getLoc ident env
 				if (isNothing loc) then
 					let (Ident identStr) = ident in
 							throwError ("Exp: " ++ identStr ++ " was not declared!")
 				else 
-					lift $ put (mem, update (\_ -> Just val) (fromJust loc) state)
+					lift $ put (env, penv, update (\_ -> Just val) (fromJust loc) state)
 				return res2
 		_ -> throwError "Trying to assign to something that isn't an lvalue!"
 	-- TODO handle all sorts of different assignment operators
@@ -136,14 +137,14 @@ executeProg (Program externalDeclarations) = do
 	return ParseOk
 
 
-run :: String -> (String, (Env, MemState))
+run :: String -> (String, StateType)
 run s = case pProg (myLexer s) of
-    Bad err -> ("Parsing error: " ++ err, (empty, empty))
+    Bad err -> ("Parsing error: " ++ err, (empty, empty, empty))
     Ok p -> 
     	if not (types p) then
-    		("Typechecking failed", (empty, empty))
+    		("Typechecking failed", (empty, empty, empty))
     	else
-    		case (runState (runExceptT (executeProg p)) (empty, empty)) of
+    		case (runState (runExceptT (executeProg p)) (empty, empty, empty)) of
     			((Right _), mem) -> ("Run successful", mem)
     			((Left str), mem) -> ("Runtime error: " ++ str, mem)
 
