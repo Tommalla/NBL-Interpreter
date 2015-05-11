@@ -84,10 +84,10 @@ allocateDeclarator (PureDecl declarator) specifiers = do
 allocateDeclarator _ _ = throwError "Allocate declarator not defined for this type of declaration."
 
 
-interpretExp :: Exp -> ExpState
-interpretExp (ExpAssign exp1 assignmentOperator exp2) = do
-	res1 <- interpretExp exp1
-	res2 <- interpretExp exp2
+executeExp :: Exp -> ExpState
+executeExp (ExpAssign exp1 assignmentOperator exp2) = do
+	res1 <- executeExp exp1
+	res2 <- executeExp exp2
 	case res1 of
 		ExpVar ident -> do
 				(mem, state) <- lift $ get
@@ -104,38 +104,48 @@ interpretExp (ExpAssign exp1 assignmentOperator exp2) = do
 				return res2
 		_ -> throwError "Trying to assign to something that isn't an lvalue!"
 	-- TODO handle all sorts of different assignment operators
-interpretExp (ExpVar ident) = return (ExpVar ident)
-interpretExp (ExpConstant constant) = return (ExpConstant constant)
-interpretExp _ = throwError "This type of exception is not supported yet."
+executeExp (ExpVar ident) = return (ExpVar ident)
+executeExp (ExpConstant constant) = return (ExpConstant constant)
+executeExp _ = throwError "This type of exception is not supported yet."
 
 
-interpretStmt :: Stmt -> GlobalState
--- TODO do some sort of a fold on state here.
-interpretStmt (DeclS (Declarators specifiers initDeclarators)) = allocateDeclarator (head initDeclarators) specifiers
-interpretStmt (ExprS (ExtraSemicolon)) = return ParseOk
-interpretStmt (ExprS (HangingExp exp)) = do
+executeStmt :: Stmt -> GlobalState
+executeStmt (DeclS (Declarators specifiers initDeclarators)) = allocateDeclarator (head initDeclarators) specifiers
+executeStmt (ExprS (ExtraSemicolon)) = return ParseOk
+executeStmt (ExprS (HangingExp exp)) = do
 	mem <- lift $ get
-	lift $ put (snd (runState (runExceptT (interpretExp exp)) mem))
+	lift $ put (snd (runState (runExceptT (executeExp exp)) mem))
 	return ParseOk
-interpretStmt (CompS (StmtComp statements)) = do
-	mapM_ (interpretStmt) statements
+executeStmt (CompS (StmtComp statements)) = do
+	mapM_ (executeStmt) statements
 	return ParseOk
-interpretStmt _ = throwError "This type of statement is not supported yet."
+executeStmt _ = throwError "This type of statement is not supported yet."
 
 
-interpretProg :: Prog -> GlobalState
-interpretProg (Program externalDeclarations) = undefined
+executeExternalDeclaration :: ExternalDeclaration -> GlobalState
+executeExternalDeclaration (Func declarationSpecifiers declarator compoundStatement) = 
+	throwError "Function declaration not supported yet."
+executeExternalDeclaration (Global (Declarators specifiers initDeclarators)) = do
+	mapM_ (\initDeclarator -> allocateDeclarator initDeclarator specifiers) initDeclarators
+	return ParseOk 
 
 
--- TODO change run to work on programs - need standard entry point and functions.
--- Then plug typecheck here.
+executeProg :: Prog -> GlobalState
+executeProg (Program externalDeclarations) = do
+	mapM_ (executeExternalDeclaration) externalDeclarations
+	return ParseOk
+
+
 run :: String -> (String, (Env, MemState))
-run s = case pStmt (myLexer s) of
+run s = case pProg (myLexer s) of
     Bad err -> ("Parsing error: " ++ err, (empty, empty))
-    -- TODO (fix below)
-    Ok p -> case (runState (runExceptT (interpretStmt p)) (empty, empty)) of
-    	((Right _), mem) -> ("Run successful", mem)
-    	((Left str), mem) -> ("Runtime error: " ++ str, mem)
+    Ok p -> 
+    	if not (types p) then
+    		("Typechecking failed", (empty, empty))
+    	else
+    		case (runState (runExceptT (executeProg p)) (empty, empty)) of
+    			((Right _), mem) -> ("Run successful", mem)
+    			((Left str), mem) -> ("Runtime error: " ++ str, mem)
 
 
 main = do

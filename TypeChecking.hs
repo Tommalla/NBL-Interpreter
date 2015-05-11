@@ -27,7 +27,10 @@ squashResults results = if (all (== TypeChecking.Ok) results) then TypeChecking.
 
 
 validateExternalDeclaration :: ExternalDeclaration -> TypeEval
-validateExternalDeclaration (Global (Declarators declarationSpecifiers initDeclarators)) = undefined
+validateExternalDeclaration (Global (Declarators declarationSpecifiers initDeclarators)) = do
+	return TypeChecking.Ok
+validateExternalDeclaration _ = do
+	return TypeChecking.Ok
 
 
 validateProg :: Prog -> TypeEval
