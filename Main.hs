@@ -29,7 +29,7 @@ data DataType =
 	| TConst DataType
 	deriving (Show)
 
-data ParseResult = ParseOk | Error String
+data ParseResult = ExecOk | Error String
 	deriving (Eq)
 type Loc = Int
 type Env = Map Ident Loc
@@ -72,7 +72,7 @@ allocateDirect (Name ident) specifiers = do
 	(env, penv, state) <- lift $ get
 	let loc = newloc state
 	lift $ put (insert ident loc env, penv, insert loc (createDefaultValue specifiers) state)
-	return ParseOk
+	return ExecOk
 allocateDirect _ _ = throwError "This type of allocation is not supported yet."
 
 
@@ -110,15 +110,17 @@ executeExp _ = throwError "This type of exception is not supported yet."
 
 
 executeStmt :: Stmt -> GlobalState
-executeStmt (DeclS (Declarators specifiers initDeclarators)) = allocateDeclarator (head initDeclarators) specifiers
-executeStmt (ExprS (ExtraSemicolon)) = return ParseOk
+executeStmt (DeclS (Declarators specifiers initDeclarators)) = do
+	mapM_ (\initDeclarator -> allocateDeclarator initDeclarator specifiers) initDeclarators
+	return ExecOk
+executeStmt (ExprS (ExtraSemicolon)) = return ExecOk
 executeStmt (ExprS (HangingExp exp)) = do
 	mem <- lift $ get
 	lift $ put (snd (runState (runExceptT (executeExp exp)) mem))
-	return ParseOk
+	return ExecOk
 executeStmt (CompS (StmtComp statements)) = do
 	mapM_ (executeStmt) statements
-	return ParseOk
+	return ExecOk
 executeStmt _ = throwError "This type of statement is not supported yet."
 
 
@@ -128,7 +130,7 @@ executeFunctionDeclaration (NoPointer (ParamFuncDecl (Name ident) parameterDecla
 executeFunctionDeclaration (NoPointer (EmptyFuncDecl (Name ident))) compoundStatement = do
 	(env, penv, store) <- lift $ get
 	lift $ put (env, insert ident ([], compoundStatement, env) penv, store)
-	return ParseOk
+	return ExecOk
 executeFunctionDeclaration declarator _ = throwError "Malformed function declaration. "
 
 
@@ -137,13 +139,13 @@ executeExternalDeclaration (Func declarationSpecifiers declarator compoundStatem
 	executeFunctionDeclaration declarator compoundStatement
 executeExternalDeclaration (Global (Declarators specifiers initDeclarators)) = do
 	mapM_ (\initDeclarator -> allocateDeclarator initDeclarator specifiers) initDeclarators
-	return ParseOk 
+	return ExecOk 
 
 
 executeProg :: Prog -> GlobalState
 executeProg (Program externalDeclarations) = do
 	mapM_ (executeExternalDeclaration) externalDeclarations
-	return ParseOk
+	return ExecOk
 
 
 run :: String -> (String, StateType)
