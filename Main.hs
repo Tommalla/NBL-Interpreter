@@ -70,7 +70,6 @@ createDefaultValue (h:t) = if (not (Prelude.null t)) then
 allocateDirect :: DirectDeclarator -> [DeclarationSpecifier] -> GlobalState
 allocateDirect (Name ident) specifiers = do
 	(env, penv, state) <- lift $ get
-	-- FIXME conflicts?
 	let loc = newloc state
 	lift $ put (insert ident loc env, penv, insert loc (createDefaultValue specifiers) state)
 	return ParseOk
@@ -154,12 +153,14 @@ run s = case pProg (myLexer s) of
     	if not (types p) then
     		("Typechecking failed", (empty, empty, empty))
     	else
+    		-- This bit needs a refactor...
     		case (runState (runExceptT (executeProg p)) (empty, empty, empty)) of
     			((Right _), (e, penv, store)) -> 
     				let mainFunc = Data.Map.lookup (Ident "main") penv in
     					if (isNothing mainFunc) then ("No main declared.", (e, penv, store)) else
 							let (params, compoundStatement, env) = fromJust mainFunc in
-								case (runState (runExceptT (executeStmt (CompS compoundStatement))) (env, penv, store)) of
+								case (runState (runExceptT (
+											executeStmt (CompS compoundStatement))) (env, penv, store)) of
 									((Right _), mem) -> ("Run successful", mem)
 									((Left str), mem) -> ("Runtime error: " ++ str, mem)
     			((Left str), mem) -> ("Runtime error: " ++ str, mem)
@@ -167,5 +168,5 @@ run s = case pProg (myLexer s) of
 
 main = do
   code <- getContents
-  let (out, ret) = run code
-  print $ (out, ret)
+  let (out, (env, _, store)) = run code
+  print $ (out, (env, store))
