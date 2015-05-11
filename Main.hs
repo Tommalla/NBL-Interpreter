@@ -150,20 +150,19 @@ run :: String -> (String, StateType)
 run s = case pProg (myLexer s) of
     Bad err -> ("Parsing error: " ++ err, (empty, empty, empty))
     Ok p -> 
-    	if not (types p) then
-    		("Typechecking failed", (empty, empty, empty))
-    	else
-    		-- This bit needs a refactor...
-    		case (runState (runExceptT (executeProg p)) (empty, empty, empty)) of
-    			((Right _), (e, penv, store)) -> 
-    				let mainFunc = Data.Map.lookup (Ident "main") penv in
-    					if (isNothing mainFunc) then ("No main declared.", (e, penv, store)) else
-							let (params, compoundStatement, env) = fromJust mainFunc in
-								case (runState (runExceptT (
-											executeStmt (CompS compoundStatement))) (env, penv, store)) of
-									((Right _), mem) -> ("Run successful", mem)
-									((Left str), mem) -> ("Runtime error: " ++ str, mem)
-    			((Left str), mem) -> ("Runtime error: " ++ str, mem)
+    	case types p of
+    		Left str -> ("Typechecking failed: " ++ str, (empty, empty, empty))
+    		Right _ ->	-- This bit needs a refactor...
+    			case (runState (runExceptT (executeProg p)) (empty, empty, empty)) of
+    				((Right _), (e, penv, store)) -> 
+    					let mainFunc = Data.Map.lookup (Ident "main") penv in
+    						if (isNothing mainFunc) then ("No main declared.", (e, penv, store)) else
+								let (params, compoundStatement, env) = fromJust mainFunc in
+									case (runState (runExceptT (
+												executeStmt (CompS compoundStatement))) (env, penv, store)) of
+										((Right _), mem) -> ("Run successful", mem)
+										((Left str), mem) -> ("Runtime error: " ++ str, mem)
+    				((Left str), mem) -> ("Runtime error: " ++ str, mem)
 
 
 main = do

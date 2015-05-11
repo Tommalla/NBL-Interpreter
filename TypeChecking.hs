@@ -22,6 +22,7 @@ data TypeCheckResult = Ok | Failed
 type Env = Map Ident DataType
 type PEnv = Map Ident (DataType, [DataType]) -- The tuple is the return type and then params types.
 type TypeEval = ExceptT String (State (Env, PEnv)) TypeCheckResult
+type ExpTypeEval = ExceptT String (State (Env, PEnv)) Exp
 
 
 -- TODO need to incorporate pointers into this.
@@ -37,6 +38,10 @@ getType (h:t) = if (not (Prelude.null t)) then
 		Type anything -> Just (Raw anything)
 
 
+extractType :: Ident -> Env -> Maybe DataType
+extractType = Data.Map.lookup
+
+
 validateDirect :: DirectDeclarator -> [DeclarationSpecifier] -> TypeEval
 validateDirect (Name ident) specifiers = do
 	(env, penv) <- lift $ get
@@ -49,6 +54,54 @@ validateDirect (Name ident) specifiers = do
 validateDirect _ _ = throwError "This type of allocation is not supported yet."
 
 
+validateDeclarator :: InitDeclarator -> [DeclarationSpecifier] -> TypeEval
+validateDeclarator (PureDecl declarator) specifiers = do
+	case declarator of
+		NoPointer directDeclarator -> validateDirect directDeclarator specifiers
+		_ -> throwError "Not a NoPointer"
+validateDeclarator _ _ = throwError "validateDeclarator not defined for this type of declaration."
+
+
+validateExp :: Exp -> ExpTypeEval
+validateExp (ExpAssign exp1 assignmentOperator exp2) = do
+	res1 <- validateExp exp1
+	res2 <- validateExp exp2
+	case res1 of
+		ExpVar ident -> do
+				(env, penv) <- lift $ get
+				let lType = extractType ident env
+				if (isNothing lType) then
+					throwError "lvalue does not type."
+				else do
+					case res2 of 
+						-- TODO pointers
+						ExpConstant (ExpInt _) -> case fromJust lType of
+							(Raw TypeInt) -> do
+								lift $ put (insert ident (fromJust lType) env, penv)
+								return res2
+							_ -> throwError "Types don't match..."
+						_ -> throwError "rvalue is not a constant - not supported"
+		_ -> throwError "Trying to assign to something that isn't an lvalue!"
+	-- TODO handle all sorts of different assignment operators
+validateExp (ExpVar ident) = return (ExpVar ident)
+validateExp (ExpConstant constant) = return (ExpConstant constant)
+validateExp _ = throwError "This type of exception is not supported yet."
+
+
+validateStmt :: Stmt -> TypeEval
+validateStmt (DeclS (Declarators specifiers initDeclarators)) = do
+	mapM_ (\initDeclarator -> validateDeclarator initDeclarator specifiers) initDeclarators
+	return TypeChecking.Ok
+validateStmt (ExprS (ExtraSemicolon)) = return TypeChecking.Ok
+validateStmt (ExprS (HangingExp exp)) = do
+	validateExp exp
+	return TypeChecking.Ok
+validateStmt (CompS (StmtComp statements)) = do
+	mapM_ (validateStmt) statements
+	return TypeChecking.Ok
+validateStmt _ = throwError "This type of statement is not supported yet."
+
+
 -- TODO this function needs to validate the types inside the instructions in CompoundStatement.
 validateFunctionDeclaration :: [DeclarationSpecifier] -> Declarator -> CompoundStatement -> TypeEval
 validateFunctionDeclaration declarationSpecifiers (NoPointer (ParamFuncDecl (Name ident) parameterDeclarations)) 
@@ -59,7 +112,10 @@ validateFunctionDeclaration declarationSpecifiers (NoPointer (EmptyFuncDecl (Nam
 	if (isNothing returnType) then
 		throwError "Incorrect function return type!"
 	else do
-		lift $ put (env, insert ident (fromJust returnType, []) penv)
+		let penv = insert ident (fromJust returnType, []) penv
+		lift $ put (env, penv)	-- Have to put function in penv.
+		validateStmt (CompS compoundStatement)
+		lift $ put (env, penv)	-- Restore the previous state.
 		return TypeChecking.Ok
 validateFunctionDeclaration _ _ _ = throwError "Malformed function declaration. "
 
@@ -77,7 +133,7 @@ validateProg (Program externalDeclarations) = do
 	return TypeChecking.Ok
 
 
-types :: Prog -> Bool
+types :: Prog -> Either String ()
 types prog = case fst (runState (runExceptT (validateProg prog)) (empty, empty)) of
-	(Right _) -> True
-	(Left _) -> False	-- TODO We should be returning an error from here. The type of 'types' needs to change.
+	(Right _) -> Right ()
+	(Left msg) -> Left msg 	-- TODO We should be returning an error from here. The type of 'types' needs to change.
