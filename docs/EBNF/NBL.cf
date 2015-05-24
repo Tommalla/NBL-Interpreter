@@ -145,7 +145,7 @@ ExpDouble.      Constant ::= Double;
 ExpInt.          Constant ::= Integer;
 ExpBool.		Constant ::= BoolConstant;
 
-internal Edouble. Constant ::= Double;
+internal ExpDouble. Constant ::= Double;
 
 Especial. Constant_expression ::= Exp3;
 

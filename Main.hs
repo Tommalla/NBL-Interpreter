@@ -36,8 +36,27 @@ type Env = Map Ident Loc
 type Store = Map Loc DataType
 type PEnv = Map Ident ([Ident], CompoundStatement, Env)	-- The list is the list of argument names.
 type StateType = (Env, PEnv, Store)
-type GlobalState = ExceptT String (State StateType) ParseResult
-type ExpState = ExceptT String (State StateType) Exp
+type Exec a = ExceptT String (State StateType) a
+--type GlobalState =  ParseResult
+--type ExpState = ExceptT String (State StateType) Exp
+data Operator = 
+	  Plus 
+	| Minus 
+	| Times 
+	| Div
+	| Mod 
+	| And 
+	| Or 
+	| Eq 
+	| Neq 
+	| Lt 
+	| Gt 
+	| Le 
+
+
+add :: DataType -> DataType -> Maybe DataType
+add (TInt a) (TInt b) = Just (TInt (a + b))
+add _ _ = Nothing 
 
 
 -- Returns a new location
@@ -50,6 +69,38 @@ newloc memState = (safeMaximum (keys memState)) + 1
 
 getLoc :: Ident -> Env -> Maybe Loc 
 getLoc = Data.Map.lookup
+
+
+getVal :: Ident -> Exec (Maybe DataType)
+getVal ident = do
+	(env, _, store) <- lift $ get
+	let loc = getLoc ident env
+	if (isNothing loc) then
+		throwError "Location does not exist" -- FIXME this is not needed.
+	else
+		return (Data.Map.lookup (fromJust loc) store)
+
+
+constantToDataType :: Constant -> DataType
+constantToDataType (ExpChar c) = TChar c
+constantToDataType (ExpDouble d) = TDouble d
+constantToDataType (ExpInt i) = TInt i
+constantToDataType (ExpBool b) = TBool (b == ValTrue)
+
+
+dataTypeToConstant :: DataType -> Maybe Constant
+dataTypeToConstant (TChar c) = Just (ExpChar c)
+dataTypeToConstant (TDouble d) = Just (ExpDouble d)
+dataTypeToConstant (TInt i) = Just (ExpInt i)
+dataTypeToConstant (TBool b) = Just (ExpBool (if b then ValTrue else ValFalse))
+dataTypeToConstant _ = Nothing
+
+
+-- Extracts the underlying value. Works only for vars and consts.
+getDirectValue :: Exp -> Exec (Maybe DataType)
+getDirectValue (ExpConstant constant) = return (Just (constantToDataType constant))
+getDirectValue (ExpVar ident) = getVal ident
+getDirectValue _ = throwError "Cannot extract value from an expression."
 
 
 -- Returns an initialized object of DataType based on the declaration specifiers.
@@ -67,7 +118,7 @@ createDefaultValue (h:t) = if (not (Prelude.null t)) then
 		Type (TypeString) -> (TString "")
 
 
-allocateDirect :: DirectDeclarator -> [DeclarationSpecifier] -> GlobalState
+allocateDirect :: DirectDeclarator -> [DeclarationSpecifier] -> Exec ParseResult
 allocateDirect (Name ident) specifiers = do
 	(env, penv, state) <- lift $ get
 	let loc = newloc state
@@ -76,7 +127,7 @@ allocateDirect (Name ident) specifiers = do
 allocateDirect _ _ = throwError "This type of allocation is not supported yet."
 
 
-allocateDeclarator :: InitDeclarator -> [DeclarationSpecifier] -> GlobalState
+allocateDeclarator :: InitDeclarator -> [DeclarationSpecifier] -> Exec ParseResult
 allocateDeclarator (PureDecl declarator) specifiers = do
 	case declarator of
 		NoPointer directDeclarator -> allocateDirect directDeclarator specifiers
@@ -84,7 +135,19 @@ allocateDeclarator (PureDecl declarator) specifiers = do
 allocateDeclarator _ _ = throwError "Allocate declarator not defined for this type of declaration."
 
 
-executeExp :: Exp -> ExpState
+getBinaryExpResult :: Exp -> Operator -> Exp -> Exec Exp
+getBinaryExpResult exp1 operator exp2 = do
+	res1 <- executeExp exp1
+	res2 <- executeExp exp2
+	val1 <- getDirectValue res1
+	val2 <- getDirectValue res2
+	case operator of
+		-- FIXME the line below is prone to errors
+		Main.Plus -> return (ExpConstant (fromJust (dataTypeToConstant (fromJust((fromJust val1) `add` (fromJust val2))))))
+		_ -> throwError "Operator not supported yet."
+
+
+executeExp :: Exp -> Exec Exp
 executeExp (ExpAssign exp1 assignmentOperator exp2) = do
 	res1 <- executeExp exp1
 	res2 <- executeExp exp2
@@ -106,17 +169,20 @@ executeExp (ExpAssign exp1 assignmentOperator exp2) = do
 	-- TODO handle all sorts of different assignment operators
 executeExp (ExpVar ident) = return (ExpVar ident)
 executeExp (ExpConstant constant) = return (ExpConstant constant)
-executeExp _ = throwError "This type of exception is not supported yet."
+executeExp (ExpPlus exp1 exp2) = getBinaryExpResult exp1 Main.Plus exp2
+executeExp _ = throwError "This type of expression is not supported yet."
 
 
-executeStmt :: Stmt -> GlobalState
+executeStmt :: Stmt -> Exec ParseResult
 executeStmt (DeclS (Declarators specifiers initDeclarators)) = do
 	mapM_ (\initDeclarator -> allocateDeclarator initDeclarator specifiers) initDeclarators
 	return ExecOk
 executeStmt (ExprS (ExtraSemicolon)) = return ExecOk
 executeStmt (ExprS (HangingExp exp)) = do
 	mem <- lift $ get
-	lift $ put (snd (runState (runExceptT (executeExp exp)) mem))
+	case runState (runExceptT (executeExp exp)) mem of
+		(Right _, mem) -> lift $ put mem
+		(Left err, _) -> throwError err
 	return ExecOk
 executeStmt (CompS (StmtComp statements)) = do
 	mapM_ (executeStmt) statements
@@ -124,7 +190,7 @@ executeStmt (CompS (StmtComp statements)) = do
 executeStmt _ = throwError "This type of statement is not supported yet."
 
 
-executeFunctionDeclaration :: Declarator -> CompoundStatement -> GlobalState
+executeFunctionDeclaration :: Declarator -> CompoundStatement -> Exec ParseResult
 executeFunctionDeclaration (NoPointer (ParamFuncDecl (Name ident) parameterDeclarations)) compoundStatement = 
 	throwError "Functions with parameters are not supported yet."
 executeFunctionDeclaration (NoPointer (EmptyFuncDecl (Name ident))) compoundStatement = do
@@ -134,7 +200,7 @@ executeFunctionDeclaration (NoPointer (EmptyFuncDecl (Name ident))) compoundStat
 executeFunctionDeclaration declarator _ = throwError "Malformed function declaration. "
 
 
-executeExternalDeclaration :: ExternalDeclaration -> GlobalState
+executeExternalDeclaration :: ExternalDeclaration -> Exec ParseResult
 executeExternalDeclaration (Func declarationSpecifiers declarator compoundStatement) =
 	executeFunctionDeclaration declarator compoundStatement
 executeExternalDeclaration (Global (Declarators specifiers initDeclarators)) = do
@@ -142,7 +208,7 @@ executeExternalDeclaration (Global (Declarators specifiers initDeclarators)) = d
 	return ExecOk 
 
 
-executeProg :: Prog -> GlobalState
+executeProg :: Prog -> Exec ParseResult
 executeProg (Program externalDeclarations) = do
 	mapM_ (executeExternalDeclaration) externalDeclarations
 	return ExecOk
@@ -171,3 +237,4 @@ main = do
   code <- getContents
   let (out, (env, _, store)) = run code
   print $ (out, (env, store))
+ 

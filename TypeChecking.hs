@@ -17,12 +17,12 @@ import ErrM
 
 
 data DataType = Raw TypeSpecifier | TConst DataType | TPointer DataType
+		deriving (Eq)
 data TypeCheckResult = Ok | Failed
 		deriving (Eq)
 type Env = Map Ident DataType
 type PEnv = Map Ident (DataType, [DataType]) -- The tuple is the return type and then params types.
-type TypeEval = ExceptT String (State (Env, PEnv)) TypeCheckResult
-type ExpTypeEval = ExceptT String (State (Env, PEnv)) Exp
+type Eval a = ExceptT String (State (Env, PEnv)) a
 
 
 -- TODO need to incorporate pointers into this.
@@ -42,7 +42,37 @@ extractType :: Ident -> Env -> Maybe DataType
 extractType = Data.Map.lookup
 
 
-validateDirect :: DirectDeclarator -> [DeclarationSpecifier] -> TypeEval
+getVarOrConstType :: Exp -> Eval (Maybe DataType)
+getVarOrConstType (ExpConstant constant) = return (case constant of
+	ExpChar _ -> Just (Raw TypeChar)
+ 	ExpDouble _ -> Just (Raw TypeDouble)
+ 	ExpInt _ -> Just (Raw TypeInt)
+ 	ExpBool  _ -> Just (Raw TypeBool))
+getVarOrConstType (ExpVar ident) = do
+	(env, _) <- lift $ get
+	return (extractType ident env)
+getVarOrConstType _ = return Nothing
+
+
+toConstant :: DataType -> Maybe Exp
+toConstant (Raw TypeChar) = Just (ExpConstant (ExpChar '0'))
+toConstant (Raw TypeDouble) = Just (ExpConstant (ExpDouble 0))
+toConstant (Raw TypeInt) = Just (ExpConstant (ExpInt 0))
+toConstant (Raw TypeBool) = Just (ExpConstant (ExpBool ValTrue))
+toConstant _ = Nothing
+
+
+getCommonType :: Maybe DataType -> Maybe DataType -> Eval (Maybe DataType)
+getCommonType (Just t1) (Just t2) = do
+	if t1 == t2 then 
+		return (Just t1)
+	else 
+		return Nothing
+-- TODO: If we get any casting, it goes here.
+getCommonType _ _ = return Nothing
+
+
+validateDirect :: DirectDeclarator -> [DeclarationSpecifier] -> Eval TypeCheckResult
 validateDirect (Name ident) specifiers = do
 	(env, penv) <- lift $ get
 	let declType = getType specifiers
@@ -54,7 +84,7 @@ validateDirect (Name ident) specifiers = do
 validateDirect _ _ = throwError "This type of allocation is not supported yet."
 
 
-validateDeclarator :: InitDeclarator -> [DeclarationSpecifier] -> TypeEval
+validateDeclarator :: InitDeclarator -> [DeclarationSpecifier] -> Eval TypeCheckResult
 validateDeclarator (PureDecl declarator) specifiers = do
 	case declarator of
 		NoPointer directDeclarator -> validateDirect directDeclarator specifiers
@@ -62,7 +92,7 @@ validateDeclarator (PureDecl declarator) specifiers = do
 validateDeclarator _ _ = throwError "validateDeclarator not defined for this type of declaration."
 
 
-validateExp :: Exp -> ExpTypeEval
+validateExp :: Exp -> Eval Exp
 validateExp (ExpAssign exp1 assignmentOperator exp2) = do
 	res1 <- validateExp exp1
 	res2 <- validateExp exp2
@@ -85,10 +115,24 @@ validateExp (ExpAssign exp1 assignmentOperator exp2) = do
 	-- TODO handle all sorts of different assignment operators
 validateExp (ExpVar ident) = return (ExpVar ident)
 validateExp (ExpConstant constant) = return (ExpConstant constant)
+validateExp (ExpPlus exp1 exp2) = do
+	res1 <- validateExp exp1
+	res2 <- validateExp exp2
+	t1 <- getVarOrConstType res1
+	t2 <- getVarOrConstType res2
+	tRes <- getCommonType t1 t2
+	case tRes of
+		Just res -> do
+			let finalRes = toConstant res
+			if (not (isNothing finalRes)) then
+				return (fromJust finalRes)	-- An arithmetic operation always returns rvalue.
+			else
+				throwError "The result is inconvertible to a constant."
+		Nothing -> throwError "Expressions on different types are not supported."
 validateExp _ = throwError "This type of exception is not supported yet."
 
 
-validateStmt :: Stmt -> TypeEval
+validateStmt :: Stmt -> Eval TypeCheckResult
 validateStmt (DeclS (Declarators specifiers initDeclarators)) = do
 	mapM_ (\initDeclarator -> validateDeclarator initDeclarator specifiers) initDeclarators
 	return TypeChecking.Ok
@@ -103,7 +147,7 @@ validateStmt _ = throwError "This type of statement is not supported yet."
 
 
 -- TODO this function needs to validate the types inside the instructions in CompoundStatement.
-validateFunctionDeclaration :: [DeclarationSpecifier] -> Declarator -> CompoundStatement -> TypeEval
+validateFunctionDeclaration :: [DeclarationSpecifier] -> Declarator -> CompoundStatement -> Eval TypeCheckResult
 validateFunctionDeclaration declarationSpecifiers (NoPointer (ParamFuncDecl (Name ident) parameterDeclarations)) 
 		compoundStatement = throwError "Functions with parameters are not supported yet."
 validateFunctionDeclaration declarationSpecifiers (NoPointer (EmptyFuncDecl (Name ident))) compoundStatement = do
@@ -120,14 +164,14 @@ validateFunctionDeclaration declarationSpecifiers (NoPointer (EmptyFuncDecl (Nam
 validateFunctionDeclaration _ _ _ = throwError "Malformed function declaration. "
 
 
-validateExternalDeclaration :: ExternalDeclaration -> TypeEval
+validateExternalDeclaration :: ExternalDeclaration -> Eval TypeCheckResult
 validateExternalDeclaration (Global (Declarators declarationSpecifiers initDeclarators)) = return TypeChecking.Ok
 validateExternalDeclaration (Func declarationSpecifiers declarator compoundStatement) = 
 	validateFunctionDeclaration declarationSpecifiers declarator compoundStatement
 validateExternalDeclaration _ = throwError "This type of external declaration is not supported yet."
 
 
-validateProg :: Prog -> TypeEval
+validateProg :: Prog -> Eval TypeCheckResult
 validateProg (Program externalDeclarations) = do
 	mapM_ (validateExternalDeclaration) externalDeclarations
 	return TypeChecking.Ok
