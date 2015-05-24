@@ -92,6 +92,23 @@ validateDeclarator (PureDecl declarator) specifiers = do
 validateDeclarator _ _ = throwError "validateDeclarator not defined for this type of declaration."
 
 
+validateBinaryOp :: Exp -> Exp -> Eval Exp
+validateBinaryOp exp1 exp2 = do
+	res1 <- validateExp exp1
+	res2 <- validateExp exp2
+	t1 <- getVarOrConstType res1
+	t2 <- getVarOrConstType res2
+	tRes <- getCommonType t1 t2
+	case tRes of
+		Just res -> do
+			let finalRes = toConstant res
+			if (not (isNothing finalRes)) then
+				return (fromJust finalRes)	-- An arithmetic operation always returns rvalue.
+			else
+				throwError "The result is inconvertible to a constant."
+		Nothing -> throwError "Expressions on different types are not supported."
+
+
 validateExp :: Exp -> Eval Exp
 validateExp (ExpAssign exp1 assignmentOperator exp2) = do
 	res1 <- validateExp exp1
@@ -115,20 +132,8 @@ validateExp (ExpAssign exp1 assignmentOperator exp2) = do
 	-- TODO handle all sorts of different assignment operators
 validateExp (ExpVar ident) = return (ExpVar ident)
 validateExp (ExpConstant constant) = return (ExpConstant constant)
-validateExp (ExpPlus exp1 exp2) = do
-	res1 <- validateExp exp1
-	res2 <- validateExp exp2
-	t1 <- getVarOrConstType res1
-	t2 <- getVarOrConstType res2
-	tRes <- getCommonType t1 t2
-	case tRes of
-		Just res -> do
-			let finalRes = toConstant res
-			if (not (isNothing finalRes)) then
-				return (fromJust finalRes)	-- An arithmetic operation always returns rvalue.
-			else
-				throwError "The result is inconvertible to a constant."
-		Nothing -> throwError "Expressions on different types are not supported."
+validateExp (ExpPlus exp1 exp2) = validateBinaryOp exp1 exp2
+validateExp (ExpTimes exp1 exp2) = validateBinaryOp exp1 exp2
 validateExp _ = throwError "This type of exception is not supported yet."
 
 

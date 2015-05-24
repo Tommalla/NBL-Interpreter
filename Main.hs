@@ -57,6 +57,11 @@ add (TInt a) (TInt b) = TInt (a + b)
 add _ _ = undefined
 
 
+mul :: DataType -> DataType -> DataType
+mul (TInt a) (TInt b) = TInt (a * b)
+mul _ _ = undefined
+
+
 -- Returns a new location
 newloc :: Store -> Loc
 newloc memState = (safeMaximum (keys memState)) + 1
@@ -136,8 +141,8 @@ getBinaryExpResult exp1 operator exp2 = do
 	val1 <- getDirectValue res1
 	val2 <- getDirectValue res2
 	case operator of
-		-- FIXME the line below is prone to errors
 		Main.Plus -> return (ExpConstant (dataTypeToConstant (val1 `add` val2)))
+		Main.Times -> return (ExpConstant (dataTypeToConstant (val1 `mul` val2)))
 		_ -> throwError "Operator not supported yet."
 
 
@@ -159,6 +164,7 @@ executeExp (ExpAssign exp1 assignmentOperator exp2) = do
 executeExp (ExpVar ident) = return (ExpVar ident)
 executeExp (ExpConstant constant) = return (ExpConstant constant)
 executeExp (ExpPlus exp1 exp2) = getBinaryExpResult exp1 Main.Plus exp2
+executeExp (ExpTimes exp1 exp2) = getBinaryExpResult exp1 Main.Times exp2
 executeExp _ = throwError "This type of expression is not supported yet."
 
 
