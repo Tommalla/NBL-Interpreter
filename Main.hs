@@ -37,8 +37,6 @@ type Store = Map Loc DataType
 type PEnv = Map Ident ([Ident], CompoundStatement, Env)	-- The list is the list of argument names.
 type StateType = (Env, PEnv, Store)
 type Exec a = ExceptT String (State StateType) a
---type GlobalState =  ParseResult
---type ExpState = ExceptT String (State StateType) Exp
 data Operator = 
 	  Plus 
 	| Minus 
@@ -54,9 +52,9 @@ data Operator =
 	| Le 
 
 
-add :: DataType -> DataType -> Maybe DataType
-add (TInt a) (TInt b) = Just (TInt (a + b))
-add _ _ = Nothing 
+add :: DataType -> DataType -> DataType
+add (TInt a) (TInt b) = TInt (a + b)
+add _ _ = undefined
 
 
 -- Returns a new location
@@ -67,18 +65,14 @@ newloc memState = (safeMaximum (keys memState)) + 1
 		safeMaximum l = if (Prelude.null l) then 0 else maximum l
 
 
-getLoc :: Ident -> Env -> Maybe Loc 
-getLoc = Data.Map.lookup
+getLoc :: Ident -> Env -> Loc 
+getLoc ident env = env ! ident
 
 
-getVal :: Ident -> Exec (Maybe DataType)
+getVal :: Ident -> Exec DataType
 getVal ident = do
 	(env, _, store) <- lift $ get
-	let loc = getLoc ident env
-	if (isNothing loc) then
-		throwError "Location does not exist" -- FIXME this is not needed.
-	else
-		return (Data.Map.lookup (fromJust loc) store)
+	return (store ! (getLoc ident env))
 
 
 constantToDataType :: Constant -> DataType
@@ -88,17 +82,17 @@ constantToDataType (ExpInt i) = TInt i
 constantToDataType (ExpBool b) = TBool (b == ValTrue)
 
 
-dataTypeToConstant :: DataType -> Maybe Constant
-dataTypeToConstant (TChar c) = Just (ExpChar c)
-dataTypeToConstant (TDouble d) = Just (ExpDouble d)
-dataTypeToConstant (TInt i) = Just (ExpInt i)
-dataTypeToConstant (TBool b) = Just (ExpBool (if b then ValTrue else ValFalse))
-dataTypeToConstant _ = Nothing
+dataTypeToConstant :: DataType -> Constant
+dataTypeToConstant (TChar c) = ExpChar c
+dataTypeToConstant (TDouble d) = ExpDouble d
+dataTypeToConstant (TInt i) = ExpInt i
+dataTypeToConstant (TBool b) = ExpBool (if b then ValTrue else ValFalse)
+dataTypeToConstant _ = undefined
 
 
 -- Extracts the underlying value. Works only for vars and consts.
-getDirectValue :: Exp -> Exec (Maybe DataType)
-getDirectValue (ExpConstant constant) = return (Just (constantToDataType constant))
+getDirectValue :: Exp -> Exec DataType
+getDirectValue (ExpConstant constant) = return (constantToDataType constant)
 getDirectValue (ExpVar ident) = getVal ident
 getDirectValue _ = throwError "Cannot extract value from an expression."
 
@@ -143,7 +137,7 @@ getBinaryExpResult exp1 operator exp2 = do
 	val2 <- getDirectValue res2
 	case operator of
 		-- FIXME the line below is prone to errors
-		Main.Plus -> return (ExpConstant (fromJust (dataTypeToConstant (fromJust((fromJust val1) `add` (fromJust val2))))))
+		Main.Plus -> return (ExpConstant (dataTypeToConstant (val1 `add` val2)))
 		_ -> throwError "Operator not supported yet."
 
 
@@ -158,12 +152,7 @@ executeExp (ExpAssign exp1 assignmentOperator exp2) = do
 					-- TODO pointers
 					ExpConstant (ExpInt v) -> TInt v
 					_ -> undefined
-				let loc = getLoc ident env
-				if (isNothing loc) then
-					let (Ident identStr) = ident in
-							throwError ("Exp: " ++ identStr ++ " was not declared!")
-				else 
-					lift $ put (env, penv, update (\_ -> Just val) (fromJust loc) state)
+				lift $ put (env, penv, update (\_ -> Just val) (getLoc ident env) state)
 				return res2
 		_ -> throwError "Trying to assign to something that isn't an lvalue!"
 	-- TODO handle all sorts of different assignment operators
