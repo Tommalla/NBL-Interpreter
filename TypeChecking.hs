@@ -92,8 +92,8 @@ validateDeclarator (PureDecl declarator) specifiers = do
 validateDeclarator _ _ = throwError "validateDeclarator not defined for this type of declaration."
 
 
-validateBinaryOp :: Exp -> Exp -> Eval Exp
-validateBinaryOp exp1 exp2 = do
+validateBinaryOp :: Exp -> Exp -> (DataType -> DataType) -> Eval Exp
+validateBinaryOp exp1 exp2 toResType = do
 	res1 <- validateExp exp1
 	res2 <- validateExp exp2
 	t1 <- getVarOrConstType res1
@@ -101,7 +101,7 @@ validateBinaryOp exp1 exp2 = do
 	tRes <- getCommonType t1 t2
 	case tRes of
 		Just res -> do
-			let finalRes = toConstant res
+			let finalRes = toConstant (toResType res)
 			if (not (isNothing finalRes)) then
 				return (fromJust finalRes)	-- An arithmetic operation always returns rvalue.
 			else
@@ -132,6 +132,7 @@ validateExp (ExpAssign exp1 assignmentOperator exp2) = do
 				if (isNothing lType) then
 					throwError "lvalue does not type."
 				else do
+					-- TODO add non-const assignments.
 					if (typesMatch res2 (fromJust lType)) then do
 						lift $ put (insert ident (fromJust lType) env, penv)
 						return res2
@@ -141,14 +142,22 @@ validateExp (ExpAssign exp1 assignmentOperator exp2) = do
 	-- TODO handle all sorts of different assignment operators
 validateExp (ExpVar ident) = return (ExpVar ident)
 validateExp (ExpConstant constant) = return (ExpConstant constant)
-validateExp (ExpPlus exp1 exp2) = validateBinaryOp exp1 exp2
-validateExp (ExpMinus exp1 exp2) = validateBinaryOp exp1 exp2
-validateExp (ExpTimes exp1 exp2) = validateBinaryOp exp1 exp2
-validateExp (ExpDiv exp1 exp2) = validateBinaryOp exp1 exp2
-validateExp (ExpMod exp1 exp2) = validateBinaryOp exp1 exp2
-validateExp (ExpOr exp1 exp2) = validateBinaryOp exp1 exp2
-validateExp (ExpAnd exp1 exp2) = validateBinaryOp exp1 exp2
-validateExp (ExpOr exp1 exp2) = validateBinaryOp exp1 exp2
+validateExp (ExpPlus exp1 exp2) = validateBinaryOp exp1 exp2 (id)
+validateExp (ExpMinus exp1 exp2) = validateBinaryOp exp1 exp2 (id)
+validateExp (ExpTimes exp1 exp2) = validateBinaryOp exp1 exp2 (id)
+validateExp (ExpDiv exp1 exp2) = validateBinaryOp exp1 exp2 (id)
+validateExp (ExpMod exp1 exp2) = validateBinaryOp exp1 exp2 (id)
+validateExp (ExpOr exp1 exp2) = validateBinaryOp exp1 exp2 (id)
+validateExp (ExpAnd exp1 exp2) = validateBinaryOp exp1 exp2 (id)
+validateExp (ExpOr exp1 exp2) = validateBinaryOp exp1 exp2 (id)
+-- All below need to return bool.
+validateExp (ExpEq exp1 exp2) = validateBinaryOp exp1 exp2 (\_ -> Raw TypeBool)
+validateExp (ExpNeq exp1 exp2) = validateBinaryOp exp1 exp2 (\_ -> Raw TypeBool)
+validateExp (ExpLt exp1 exp2) = validateBinaryOp exp1 exp2 (\_ -> Raw TypeBool)
+validateExp (ExpGt exp1 exp2) = validateBinaryOp exp1 exp2 (\_ -> Raw TypeBool)
+validateExp (ExpLe exp1 exp2) = validateBinaryOp exp1 exp2 (\_ -> Raw TypeBool)
+validateExp (ExpGe exp1 exp2) = validateBinaryOp exp1 exp2 (\_ -> Raw TypeBool)
+-- TODO go deeper into types, forbid operations on types where it makes no sense.
 validateExp _ = throwError "This type of exception is not supported yet."
 
 

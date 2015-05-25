@@ -50,6 +50,7 @@ data Operator =
 	| Lt 
 	| Gt 
 	| Le 
+	| Ge
 
 
 -- TODO move all those to monads?
@@ -86,6 +87,47 @@ or _ _ = undefined
 and :: DataType -> DataType -> DataType
 and (TBool a) (TBool b) = TBool (a && b)
 and _ _ = undefined
+
+
+boolOp :: Eq a => a -> (a -> a -> Bool) -> a -> DataType
+boolOp a op b = TBool (a `op` b)
+
+
+eq :: DataType -> DataType -> DataType
+eq (TBool a) (TBool b) = boolOp a (==) b
+eq (TInt a) (TInt b) = boolOp a (==) b
+eq (TDouble a) (TDouble b) = boolOp a (==) b
+eq _ _ = undefined
+
+
+not :: DataType -> DataType
+not (TBool b) = TBool (Prelude.not b)
+not (TInt i) = TBool (i == 0)
+not _ = undefined
+
+
+neq :: DataType -> DataType -> DataType
+neq = Main.eq . Main.not
+
+
+lt :: DataType -> DataType -> DataType
+lt (TInt a) (TInt b) = boolOp a (<) b
+lt (TDouble a) (TDouble b) = boolOp a (<) b
+lt _ _ = undefined
+
+
+gt :: DataType -> DataType -> DataType
+gt (TInt a) (TInt b) = boolOp a (>) b
+gt (TDouble a) (TDouble b) = boolOp a (>) b
+gt _ _ = undefined
+
+
+le :: DataType -> DataType -> DataType
+le = Main.gt . Main.not
+
+
+ge :: DataType -> DataType -> DataType
+ge = Main.lt . Main.not
 
 
 -- Returns a new location
@@ -130,7 +172,7 @@ getDirectValue _ = throwError "Cannot extract value from an expression."
 
 -- Returns an initialized object of DataType based on the declaration specifiers.
 createDefaultValue :: [DeclarationSpecifier] -> DataType
-createDefaultValue (h:t) = if (not (Prelude.null t)) then
+createDefaultValue (h:t) = if (Prelude.not (Prelude.null t)) then
 	case h of
 		(SpecProp (Const)) -> (TConst (createDefaultValue t)) 
 	 	_ -> undefined
@@ -187,6 +229,13 @@ getBinaryExpResult exp1 operator exp2 = do
 				throwError "Division by zero"
 		Main.Or -> return (ExpConstant (dataTypeToConstant (val1 `Main.or` val2)))
 		Main.And -> return (ExpConstant (dataTypeToConstant (val1 `Main.and` val2)))
+		Main.Eq -> return (ExpConstant (dataTypeToConstant (val1 `Main.eq` val2)))
+		Main.Neq -> return (ExpConstant (dataTypeToConstant (val1 `Main.neq` val2)))
+		Main.Lt -> return (ExpConstant (dataTypeToConstant (val1 `Main.lt` val2)))
+		Main.Gt -> return (ExpConstant (dataTypeToConstant (val1 `Main.gt` val2)))
+		Main.Le -> return (ExpConstant (dataTypeToConstant (val1 `Main.le` val2)))
+		Main.Ge -> return (ExpConstant (dataTypeToConstant (val1 `Main.ge` val2)))
+		-- TODO boolean conditions.
 		_ -> throwError "Operator not supported yet,"
 
 
@@ -216,6 +265,12 @@ executeExp (ExpDiv exp1 exp2) = getBinaryExpResult exp1 Main.Div exp2
 executeExp (ExpMod exp1 exp2) = getBinaryExpResult exp1 Main.Mod exp2
 executeExp (ExpOr exp1 exp2) = getBinaryExpResult exp1 Main.Or exp2
 executeExp (ExpAnd exp1 exp2) = getBinaryExpResult exp1 Main.And exp2
+executeExp (ExpEq exp1 exp2) = getBinaryExpResult exp1 Main.Eq exp2
+executeExp (ExpNeq exp1 exp2) = getBinaryExpResult exp1 Main.Neq exp2
+executeExp (ExpLt exp1 exp2) = getBinaryExpResult exp1 Main.Lt exp2
+executeExp (ExpGt exp1 exp2) = getBinaryExpResult exp1 Main.Gt exp2
+executeExp (ExpLe exp1 exp2) = getBinaryExpResult exp1 Main.Le exp2
+executeExp (ExpGe exp1 exp2) = getBinaryExpResult exp1 Main.Ge exp2
 executeExp _ = throwError "This type of expression is not supported yet."
 
 
