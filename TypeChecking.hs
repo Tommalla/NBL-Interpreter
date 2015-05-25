@@ -109,6 +109,18 @@ validateBinaryOp exp1 exp2 = do
 		Nothing -> throwError "Expressions on different types are not supported."
 
 
+typesMatch :: Exp -> DataType -> Bool
+typesMatch expr lType = case expr of 
+	-- TODO pointers
+	ExpConstant (ExpInt _) -> case lType of
+		Raw TypeInt -> True
+		_ -> False
+	ExpConstant (ExpBool _) -> case lType of
+		Raw TypeBool -> True
+		_ -> False
+	_ -> False
+
+
 validateExp :: Exp -> Eval Exp
 validateExp (ExpAssign exp1 assignmentOperator exp2) = do
 	res1 <- validateExp exp1
@@ -120,14 +132,11 @@ validateExp (ExpAssign exp1 assignmentOperator exp2) = do
 				if (isNothing lType) then
 					throwError "lvalue does not type."
 				else do
-					case res2 of 
-						-- TODO pointers
-						ExpConstant (ExpInt _) -> case fromJust lType of
-							(Raw TypeInt) -> do
-								lift $ put (insert ident (fromJust lType) env, penv)
-								return res2
-							_ -> throwError "Types don't match..."
-						_ -> throwError "rvalue is not a constant - not supported"
+					if (typesMatch res2 (fromJust lType)) then do
+						lift $ put (insert ident (fromJust lType) env, penv)
+						return res2
+					else
+						throwError "Assignment types don't match."
 		_ -> throwError "Trying to assign to something that isn't an lvalue!"
 	-- TODO handle all sorts of different assignment operators
 validateExp (ExpVar ident) = return (ExpVar ident)
@@ -137,6 +146,9 @@ validateExp (ExpMinus exp1 exp2) = validateBinaryOp exp1 exp2
 validateExp (ExpTimes exp1 exp2) = validateBinaryOp exp1 exp2
 validateExp (ExpDiv exp1 exp2) = validateBinaryOp exp1 exp2
 validateExp (ExpMod exp1 exp2) = validateBinaryOp exp1 exp2
+validateExp (ExpOr exp1 exp2) = validateBinaryOp exp1 exp2
+validateExp (ExpAnd exp1 exp2) = validateBinaryOp exp1 exp2
+validateExp (ExpOr exp1 exp2) = validateBinaryOp exp1 exp2
 validateExp _ = throwError "This type of exception is not supported yet."
 
 

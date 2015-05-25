@@ -52,6 +52,7 @@ data Operator =
 	| Le 
 
 
+-- TODO move all those to monads?
 add :: DataType -> DataType -> DataType
 add (TInt a) (TInt b) = TInt (a + b)
 add _ _ = undefined
@@ -75,6 +76,16 @@ div _ _ = undefined
 mod :: DataType -> DataType -> DataType
 mod (TInt a) (TInt b) = TInt (a `Prelude.mod` b)
 mod _ _ = undefined
+
+
+or :: DataType -> DataType -> DataType
+or (TBool a) (TBool b) = TBool (a || b)
+or _ _ = undefined
+
+
+and :: DataType -> DataType -> DataType
+and (TBool a) (TBool b) = TBool (a && b)
+and _ _ = undefined
 
 
 -- Returns a new location
@@ -167,13 +178,15 @@ getBinaryExpResult exp1 operator exp2 = do
 		Main.Minus -> return (ExpConstant (dataTypeToConstant (val1 `sub` val2)))
 		Main.Times -> return (ExpConstant (dataTypeToConstant (val1 `mul` val2)))
 		Main.Div -> if (canDivideBy val2) then
-			return (ExpConstant (dataTypeToConstant (val1 `Main.div` val2)))
-		else
-			throwError "Division by zero"
+				return (ExpConstant (dataTypeToConstant (val1 `Main.div` val2)))
+			else
+				throwError "Division by zero"
 		Main.Mod -> if (canDivideBy val2) then
 			return (ExpConstant (dataTypeToConstant (val1 `Main.mod` val2)))
-		else
-			throwError "Division by zero"
+			else
+				throwError "Division by zero"
+		Main.Or -> return (ExpConstant (dataTypeToConstant (val1 `Main.or` val2)))
+		Main.And -> return (ExpConstant (dataTypeToConstant (val1 `Main.and` val2)))
 		_ -> throwError "Operator not supported yet,"
 
 
@@ -187,6 +200,8 @@ executeExp (ExpAssign exp1 assignmentOperator exp2) = do
 				let val = case res2 of 
 					-- TODO pointers
 					ExpConstant (ExpInt v) -> TInt v
+					ExpConstant (ExpBool b) -> TBool (b == ValTrue)
+					-- FIXME remove this undef. by moving this to a function inside the monad.
 					_ -> undefined
 				lift $ put (env, penv, update (\_ -> Just val) (getLoc ident env) state)
 				return res2
@@ -199,6 +214,8 @@ executeExp (ExpMinus exp1 exp2) = getBinaryExpResult exp1 Main.Minus exp2
 executeExp (ExpTimes exp1 exp2) = getBinaryExpResult exp1 Main.Times exp2
 executeExp (ExpDiv exp1 exp2) = getBinaryExpResult exp1 Main.Div exp2
 executeExp (ExpMod exp1 exp2) = getBinaryExpResult exp1 Main.Mod exp2
+executeExp (ExpOr exp1 exp2) = getBinaryExpResult exp1 Main.Or exp2
+executeExp (ExpAnd exp1 exp2) = getBinaryExpResult exp1 Main.And exp2
 executeExp _ = throwError "This type of expression is not supported yet."
 
 
