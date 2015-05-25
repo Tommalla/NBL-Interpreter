@@ -123,11 +123,11 @@ gt _ _ = undefined
 
 
 le :: DataType -> DataType -> DataType
-le = Main.gt . Main.not
+le a b = Main.not (Main.gt a b)
 
 
 ge :: DataType -> DataType -> DataType
-ge = Main.lt . Main.not
+ge a b = Main.not (Main.lt a b)
 
 
 -- Returns a new location
@@ -289,20 +289,31 @@ executeExp (ExpGe exp1 exp2) = getBinaryExpResult exp1 Main.Ge exp2
 executeExp _ = throwError "This type of expression is not supported yet."
 
 
-executeControlStmt :: ControlStatement -> Exec ParseResult
-executeControlStmt (IfThenElse ctlExp s1 s2) = do
+evaluateCondition :: Exp -> Exec Bool
+evaluateCondition ctlExp = do
 	res <- executeExp ctlExp
 	val <- getDirectValue res
-	let expTrue = case val of
+	return (case val of
 		TBool b -> b
 		TInt i -> i /= 0
-		_ -> False
+		_ -> False)
+
+
+executeControlStmt :: ControlStatement -> Exec ParseResult
+executeControlStmt (IfThenElse ctlExp s1 s2) = do
+	expTrue <- evaluateCondition ctlExp
 	if (expTrue) then
 		executeStmt s1
 	else
 		executeStmt s2
-
 executeControlStmt (IfThen ctlExp s) = executeControlStmt (IfThenElse ctlExp s (CompS EmptyComp))
+
+
+executeLoopStmt :: LoopStatement -> Exec ParseResult
+executeLoopStmt (LoopWhile ctlExp s) = 
+	executeStmt (CtlS (IfThen ctlExp (CompS (StmtComp [s, (LoopS (LoopWhile ctlExp s))]))))
+executeLoopStmt (LoopDoWhile s ctlExp) = executeStmt (CompS (StmtComp [s, (LoopS (LoopWhile ctlExp s))]))
+executeLoopStmt _ = throwError "This type of loop is not supported yet."
 
 
 executeStmt :: Stmt -> Exec ParseResult
@@ -321,6 +332,7 @@ executeStmt (CompS (StmtComp statements)) = do
 	return ExecOk
 executeStmt (CompS EmptyComp) = return ExecOk
 executeStmt (CtlS controlStatement) = executeControlStmt controlStatement
+executeStmt (LoopS loopStatement) = executeLoopStmt loopStatement
 executeStmt _ = throwError "This type of statement is not supported yet."
 
 

@@ -170,6 +170,14 @@ validateControlStmt (IfThenElse ctlExp s1 s2) = do
 validateControlStmt (IfThen ctlExp s) = validateControlStmt (IfThenElse ctlExp s (CompS EmptyComp))
 
 
+validateLoopStmt :: LoopStatement -> Eval TypeCheckResult
+validateLoopStmt (LoopWhile ctlExp s) = do
+	validateExp ctlExp
+	validateStmt s
+validateLoopStmt (LoopDoWhile s ctlExp) = validateLoopStmt (LoopWhile ctlExp s)
+validateLoopStmt _ = throwError "This type of loop is not supported yet."
+
+
 validateStmt :: Stmt -> Eval TypeCheckResult
 validateStmt (DeclS (Declarators specifiers initDeclarators)) = do
 	mapM_ (\initDeclarator -> validateDeclarator initDeclarator specifiers) initDeclarators
@@ -183,6 +191,7 @@ validateStmt (CompS (StmtComp statements)) = do
 	return TypeChecking.Ok
 validateStmt (CompS (EmptyComp)) = return TypeChecking.Ok
 validateStmt (CtlS controlStatement) = validateControlStmt controlStatement
+validateStmt (LoopS loopStatement) = validateLoopStmt loopStatement
 validateStmt x = throwError ((shows x) " This type of statement is not supported yet.")
 
 
