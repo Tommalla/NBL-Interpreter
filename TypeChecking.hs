@@ -158,7 +158,7 @@ validateExp (ExpGt exp1 exp2) = validateBinaryOp exp1 exp2 (\_ -> Raw TypeBool)
 validateExp (ExpLe exp1 exp2) = validateBinaryOp exp1 exp2 (\_ -> Raw TypeBool)
 validateExp (ExpGe exp1 exp2) = validateBinaryOp exp1 exp2 (\_ -> Raw TypeBool)
 -- TODO go deeper into types, forbid operations on types where it makes no sense.
-validateExp _ = throwError "This type of exception is not supported yet."
+validateExp _ = throwError "This type of expression is not supported yet."
 
 
 validateStmt :: Stmt -> Eval TypeCheckResult

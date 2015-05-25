@@ -181,7 +181,6 @@ AssignMod.    AssignmentOperator ::= "%=";
 AssignAdd.    AssignmentOperator ::= "+=";
 AssignSub.    AssignmentOperator ::= "-=";
 AssignAnd.    AssignmentOperator ::= "&=";
-AssignXor.    AssignmentOperator ::= "^=";
 AssignOr.     AssignmentOperator ::= "|=";
 
 comment "/*" "*/";

@@ -239,23 +239,38 @@ getBinaryExpResult exp1 operator exp2 = do
 		_ -> throwError "Operator not supported yet,"
 
 
+simplifyAssign :: Exp -> AssignmentOperator -> Exp -> Exec Exp
+simplifyAssign exp1 operator exp2 = executeExp (ExpAssign exp1 Assign simpleExp) where
+	simpleExp = case operator of
+		AssignAdd -> ExpPlus exp1 exp2
+		AssignSub -> ExpMinus exp1 exp2
+		AssignMul -> ExpTimes exp1 exp2
+		AssignDiv -> ExpDiv exp1 exp2
+		AssignMod -> ExpMod exp1 exp2
+		AssignAnd -> ExpAnd exp1 exp2
+		AssignOr -> ExpOr exp1 exp2
+
+
 executeExp :: Exp -> Exec Exp
 executeExp (ExpAssign exp1 assignmentOperator exp2) = do
 	res1 <- executeExp exp1
 	res2 <- executeExp exp2
-	case res1 of
-		ExpVar ident -> do
-				(env, penv, state) <- lift $ get
-				let val = case res2 of 
-					-- TODO pointers
-					ExpConstant (ExpInt v) -> TInt v
-					ExpConstant (ExpBool b) -> TBool (b == ValTrue)
-					-- FIXME remove this undef. by moving this to a function inside the monad.
-					_ -> undefined
-				lift $ put (env, penv, update (\_ -> Just val) (getLoc ident env) state)
-				return res2
-		_ -> throwError "Trying to assign to something that isn't an lvalue!"
-	-- TODO handle all sorts of different assignment operators
+	if (assignmentOperator /= Assign) then
+		simplifyAssign res1 assignmentOperator res2
+	else
+		case res1 of
+			ExpVar ident -> do
+					(env, penv, state) <- lift $ get
+					let val = case res2 of 
+						-- TODO pointers
+						ExpConstant (ExpInt v) -> TInt v
+						ExpConstant (ExpBool b) -> TBool (b == ValTrue)
+						-- FIXME remove this undef. by moving this to a function inside the monad.
+						_ -> undefined
+					lift $ put (env, penv, update (\_ -> Just val) (getLoc ident env) state)
+					return res2
+			_ -> throwError "Trying to assign to something that isn't an lvalue!"
+		-- TODO handle all sorts of different assignment operators
 executeExp (ExpVar ident) = return (ExpVar ident)
 executeExp (ExpConstant constant) = return (ExpConstant constant)
 executeExp (ExpPlus exp1 exp2) = getBinaryExpResult exp1 Main.Plus exp2
