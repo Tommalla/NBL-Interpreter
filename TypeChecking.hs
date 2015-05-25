@@ -133,7 +133,10 @@ validateExp (ExpAssign exp1 assignmentOperator exp2) = do
 validateExp (ExpVar ident) = return (ExpVar ident)
 validateExp (ExpConstant constant) = return (ExpConstant constant)
 validateExp (ExpPlus exp1 exp2) = validateBinaryOp exp1 exp2
+validateExp (ExpMinus exp1 exp2) = validateBinaryOp exp1 exp2
 validateExp (ExpTimes exp1 exp2) = validateBinaryOp exp1 exp2
+validateExp (ExpDiv exp1 exp2) = validateBinaryOp exp1 exp2
+validateExp (ExpMod exp1 exp2) = validateBinaryOp exp1 exp2
 validateExp _ = throwError "This type of exception is not supported yet."
 
 

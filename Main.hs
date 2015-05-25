@@ -57,9 +57,24 @@ add (TInt a) (TInt b) = TInt (a + b)
 add _ _ = undefined
 
 
+sub :: DataType -> DataType -> DataType
+sub (TInt a) (TInt b) = TInt (a - b)
+sub _ _ = undefined
+
+
 mul :: DataType -> DataType -> DataType
 mul (TInt a) (TInt b) = TInt (a * b)
 mul _ _ = undefined
+
+
+div :: DataType -> DataType -> DataType
+div (TInt a) (TInt b) = TInt (a `Prelude.div` b)
+div _ _ = undefined
+
+
+mod :: DataType -> DataType -> DataType
+mod (TInt a) (TInt b) = TInt (a `Prelude.mod` b)
+mod _ _ = undefined
 
 
 -- Returns a new location
@@ -134,6 +149,13 @@ allocateDeclarator (PureDecl declarator) specifiers = do
 allocateDeclarator _ _ = throwError "Allocate declarator not defined for this type of declaration."
 
 
+canDivideBy :: DataType -> Bool
+canDivideBy val = case val of
+	TInt 0 -> False
+	TDouble 0 -> False
+	_ -> True
+
+
 getBinaryExpResult :: Exp -> Operator -> Exp -> Exec Exp
 getBinaryExpResult exp1 operator exp2 = do
 	res1 <- executeExp exp1
@@ -142,8 +164,17 @@ getBinaryExpResult exp1 operator exp2 = do
 	val2 <- getDirectValue res2
 	case operator of
 		Main.Plus -> return (ExpConstant (dataTypeToConstant (val1 `add` val2)))
+		Main.Minus -> return (ExpConstant (dataTypeToConstant (val1 `sub` val2)))
 		Main.Times -> return (ExpConstant (dataTypeToConstant (val1 `mul` val2)))
-		_ -> throwError "Operator not supported yet."
+		Main.Div -> if (canDivideBy val2) then
+			return (ExpConstant (dataTypeToConstant (val1 `Main.div` val2)))
+		else
+			throwError "Division by zero"
+		Main.Mod -> if (canDivideBy val2) then
+			return (ExpConstant (dataTypeToConstant (val1 `Main.mod` val2)))
+		else
+			throwError "Division by zero"
+		_ -> throwError "Operator not supported yet,"
 
 
 executeExp :: Exp -> Exec Exp
@@ -164,7 +195,10 @@ executeExp (ExpAssign exp1 assignmentOperator exp2) = do
 executeExp (ExpVar ident) = return (ExpVar ident)
 executeExp (ExpConstant constant) = return (ExpConstant constant)
 executeExp (ExpPlus exp1 exp2) = getBinaryExpResult exp1 Main.Plus exp2
+executeExp (ExpMinus exp1 exp2) = getBinaryExpResult exp1 Main.Minus exp2
 executeExp (ExpTimes exp1 exp2) = getBinaryExpResult exp1 Main.Times exp2
+executeExp (ExpDiv exp1 exp2) = getBinaryExpResult exp1 Main.Div exp2
+executeExp (ExpMod exp1 exp2) = getBinaryExpResult exp1 Main.Mod exp2
 executeExp _ = throwError "This type of expression is not supported yet."
 
 
