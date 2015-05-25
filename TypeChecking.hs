@@ -158,7 +158,16 @@ validateExp (ExpGt exp1 exp2) = validateBinaryOp exp1 exp2 (\_ -> Raw TypeBool)
 validateExp (ExpLe exp1 exp2) = validateBinaryOp exp1 exp2 (\_ -> Raw TypeBool)
 validateExp (ExpGe exp1 exp2) = validateBinaryOp exp1 exp2 (\_ -> Raw TypeBool)
 -- TODO go deeper into types, forbid operations on types where it makes no sense.
-validateExp _ = throwError "This type of expression is not supported yet."
+validateExp x = throwError ((shows x) "This type of expression is not supported yet.")
+
+
+validateControlStmt :: ControlStatement -> Eval TypeCheckResult
+validateControlStmt (IfThenElse ctlExp s1 s2) = do
+	validateExp ctlExp
+	validateStmt s1
+	validateStmt s2
+	return TypeChecking.Ok
+validateControlStmt (IfThen ctlExp s) = validateControlStmt (IfThenElse ctlExp s (CompS EmptyComp))
 
 
 validateStmt :: Stmt -> Eval TypeCheckResult
@@ -172,7 +181,9 @@ validateStmt (ExprS (HangingExp exp)) = do
 validateStmt (CompS (StmtComp statements)) = do
 	mapM_ (validateStmt) statements
 	return TypeChecking.Ok
-validateStmt _ = throwError "This type of statement is not supported yet."
+validateStmt (CompS (EmptyComp)) = return TypeChecking.Ok
+validateStmt (CtlS controlStatement) = validateControlStmt controlStatement
+validateStmt x = throwError ((shows x) " This type of statement is not supported yet.")
 
 
 -- TODO this function needs to validate the types inside the instructions in CompoundStatement.

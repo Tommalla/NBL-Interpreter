@@ -289,6 +289,22 @@ executeExp (ExpGe exp1 exp2) = getBinaryExpResult exp1 Main.Ge exp2
 executeExp _ = throwError "This type of expression is not supported yet."
 
 
+executeControlStmt :: ControlStatement -> Exec ParseResult
+executeControlStmt (IfThenElse ctlExp s1 s2) = do
+	res <- executeExp ctlExp
+	val <- getDirectValue res
+	let expTrue = case val of
+		TBool b -> b
+		TInt i -> i /= 0
+		_ -> False
+	if (expTrue) then
+		executeStmt s1
+	else
+		executeStmt s2
+
+executeControlStmt (IfThen ctlExp s) = executeControlStmt (IfThenElse ctlExp s (CompS EmptyComp))
+
+
 executeStmt :: Stmt -> Exec ParseResult
 executeStmt (DeclS (Declarators specifiers initDeclarators)) = do
 	mapM_ (\initDeclarator -> allocateDeclarator initDeclarator specifiers) initDeclarators
@@ -303,6 +319,8 @@ executeStmt (ExprS (HangingExp exp)) = do
 executeStmt (CompS (StmtComp statements)) = do
 	mapM_ (executeStmt) statements
 	return ExecOk
+executeStmt (CompS EmptyComp) = return ExecOk
+executeStmt (CtlS controlStatement) = executeControlStmt controlStatement
 executeStmt _ = throwError "This type of statement is not supported yet."
 
 
@@ -352,5 +370,7 @@ run s = case pProg (myLexer s) of
 main = do
   code <- getContents
   let (out, (env, _, store)) = run code
-  print $ (out, (env, store))
+  print $ out 
+  print $ ("Env:", env)
+  print $ ("Store:", store)
  
