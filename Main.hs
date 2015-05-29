@@ -328,7 +328,10 @@ executeStmt (ExprS (HangingExp exp)) = do
 		(Left err, _) -> throwError err
 	return ExecOk
 executeStmt (CompS (StmtComp statements)) = do
+	(env, penv, _) <- lift $ get 
 	mapM_ (executeStmt) statements
+	(_, _, store) <- lift $ get
+	lift $ put (env, penv, store)
 	return ExecOk
 executeStmt (CompS EmptyComp) = return ExecOk
 executeStmt (CtlS controlStatement) = executeControlStmt controlStatement

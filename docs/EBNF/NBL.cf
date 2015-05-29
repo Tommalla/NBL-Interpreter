@@ -98,8 +98,8 @@ IfThenElse.    ControlStatement ::= "if" "(" Exp ")" Stmt "else" Stmt;
 
 LoopWhile.   LoopStatement ::= "while" "(" Exp ")" Stmt;
 LoopDoWhile.   LoopStatement ::= "do" Stmt "while" "(" Exp ")" ";";
-LoopForTwo. LoopStatement ::= "for" "(" ExpressionStatement ExpressionStatement ")" Stmt;
-LoopForThree.  LoopStatement ::= "for" "(" ExpressionStatement ExpressionStatement Exp ")" Stmt;
+LoopForTwo. LoopStatement ::= "for" "(" Decl ExpressionStatement ")" Stmt;
+LoopForThree.  LoopStatement ::= "for" "(" Decl ExpressionStatement Exp ")" Stmt;
 
 Continue.   JumpStatement ::= "continue" ";";
 Break. JumpStatement ::= "break" ";";

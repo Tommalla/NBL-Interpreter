@@ -175,6 +175,12 @@ validateLoopStmt (LoopWhile ctlExp s) = do
 	validateExp ctlExp
 	validateStmt s
 validateLoopStmt (LoopDoWhile s ctlExp) = validateLoopStmt (LoopWhile ctlExp s)
+validateLoopStmt (LoopForThree decl ctlExpStmt deltaExp s) = undefined
+-- 	-- FIXME everything needs to be evaluated inside the environment with decl.
+-- 	validateDeclarator decl
+-- 	validateStmt ctlExpStmt
+-- 	validateExp deltaExp
+-- 	validateStmt s
 validateLoopStmt _ = throwError "This type of loop is not supported yet."
 
 
