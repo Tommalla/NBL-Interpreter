@@ -199,6 +199,12 @@ allocateDeclarator (PureDecl declarator) specifiers = do
 	case declarator of
 		NoPointer directDeclarator -> allocateDirect directDeclarator specifiers
 		_ -> throwError "Not a NoPointer"
+allocateDeclarator (InitDecl declarator (InitExpr expr)) specifiers = do
+	allocateDeclarator (PureDecl declarator) specifiers
+	case declarator of
+		NoPointer (Name ident) -> executeExp (ExpAssign (ExpVar ident) Assign expr)
+		_ -> throwError "Not a NoPointer"
+	return ExecOk
 allocateDeclarator _ _ = throwError "Allocate declarator not defined for this type of declaration."
 
 
@@ -313,7 +319,18 @@ executeLoopStmt :: LoopStatement -> Exec ParseResult
 executeLoopStmt (LoopWhile ctlExp s) = 
 	executeStmt (CtlS (IfThen ctlExp (CompS (StmtComp [s, (LoopS (LoopWhile ctlExp s))]))))
 executeLoopStmt (LoopDoWhile s ctlExp) = executeStmt (CompS (StmtComp [s, (LoopS (LoopWhile ctlExp s))]))
-executeLoopStmt _ = throwError "This type of loop is not supported yet."
+executeLoopStmt (LoopForThree (Declarators specifiers initDeclarators) ctlExpStmt deltaExp s) = do
+	(env, penv, _) <- lift $ get
+	mapM_ (\initDeclarator -> allocateDeclarator initDeclarator specifiers) initDeclarators
+	let expr = case ctlExpStmt of 
+		ExtraSemicolon -> ExpConstant (ExpBool ValTrue)	-- For without condition equals while(True)
+		HangingExp e -> e
+	executeLoopStmt (LoopWhile expr (CompS (StmtComp [s, (ExprS (HangingExp deltaExp))])))
+	(_, _, store) <- lift $ get
+	lift $ put (env, penv, store)
+	return ExecOk
+executeLoopStmt (LoopForTwo decl ctlExpStmt s) = 
+		executeLoopStmt (LoopForThree decl ctlExpStmt (ExpConstant (ExpInt 0)) s) -- Yup, it's a hack
 
 
 executeStmt :: Stmt -> Exec ParseResult

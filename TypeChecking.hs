@@ -17,7 +17,7 @@ import ErrM
 
 
 data DataType = Raw TypeSpecifier | TConst DataType | TPointer DataType
-		deriving (Eq)
+		deriving (Eq,Show)
 data TypeCheckResult = Ok | Failed
 		deriving (Eq)
 type Env = Map Ident DataType
@@ -89,6 +89,10 @@ validateDeclarator (PureDecl declarator) specifiers = do
 	case declarator of
 		NoPointer directDeclarator -> validateDirect directDeclarator specifiers
 		_ -> throwError "Not a NoPointer"
+validateDeclarator (InitDecl declarator (InitExpr expr)) specifiers = do
+	validateDeclarator (PureDecl declarator) specifiers
+	validateExp expr
+	return TypeChecking.Ok
 validateDeclarator _ _ = throwError "validateDeclarator not defined for this type of declaration."
 
 
@@ -137,7 +141,7 @@ validateExp (ExpAssign exp1 assignmentOperator exp2) = do
 						lift $ put (insert ident (fromJust lType) env, penv)
 						return res2
 					else
-						throwError "Assignment types don't match."
+						throwError ((shows (lType, res2)) "Assignment types don't match.")
 		_ -> throwError "Trying to assign to something that isn't an lvalue!"
 	-- TODO handle all sorts of different assignment operators
 validateExp (ExpVar ident) = return (ExpVar ident)
@@ -175,13 +179,16 @@ validateLoopStmt (LoopWhile ctlExp s) = do
 	validateExp ctlExp
 	validateStmt s
 validateLoopStmt (LoopDoWhile s ctlExp) = validateLoopStmt (LoopWhile ctlExp s)
-validateLoopStmt (LoopForThree decl ctlExpStmt deltaExp s) = undefined
--- 	-- FIXME everything needs to be evaluated inside the environment with decl.
--- 	validateDeclarator decl
--- 	validateStmt ctlExpStmt
--- 	validateExp deltaExp
--- 	validateStmt s
-validateLoopStmt _ = throwError "This type of loop is not supported yet."
+validateLoopStmt (LoopForThree (Declarators specifiers initDeclarators) ctlExpStmt deltaExp s) = do
+	prevMapping <- lift $ get
+	mapM_ (\initDeclarator -> validateDeclarator initDeclarator specifiers) initDeclarators
+	validateStmt (ExprS ctlExpStmt)
+	validateExp deltaExp
+	validateStmt s
+	lift $ put prevMapping
+	return TypeChecking.Ok
+validateLoopStmt (LoopForTwo decl ctlExpStmt s) = 
+		validateLoopStmt (LoopForThree decl ctlExpStmt (ExpConstant (ExpInt 0)) s)
 
 
 validateStmt :: Stmt -> Eval TypeCheckResult
