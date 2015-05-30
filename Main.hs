@@ -257,6 +257,13 @@ simplifyAssign exp1 operator exp2 = executeExp (ExpAssign exp1 Assign simpleExp)
 		AssignOr -> ExpOr exp1 exp2
 
 
+executePostOp :: Exp -> (Exp -> Exp) -> Exec Exp
+executePostOp expr op = do
+	res <- executeExp expr
+	executeExp (op res)
+	return res
+
+
 executeExp :: Exp -> Exec Exp
 executeExp (ExpAssign exp1 assignmentOperator exp2) = do
 	res1 <- executeExp exp1
@@ -292,6 +299,10 @@ executeExp (ExpLt exp1 exp2) = getBinaryExpResult exp1 Main.Lt exp2
 executeExp (ExpGt exp1 exp2) = getBinaryExpResult exp1 Main.Gt exp2
 executeExp (ExpLe exp1 exp2) = getBinaryExpResult exp1 Main.Le exp2
 executeExp (ExpGe exp1 exp2) = getBinaryExpResult exp1 Main.Ge exp2
+executeExp (ExpPreInc expr) = executeExp (ExpAssign expr AssignAdd (ExpConstant (ExpInt 1)))
+executeExp (ExpPreDec expr) = executeExp (ExpAssign expr AssignSub (ExpConstant (ExpInt 1)))
+executeExp (ExpPostInc expr) = executePostOp expr (\e -> (ExpAssign e AssignAdd (ExpConstant (ExpInt 1))))
+executeExp (ExpPostDec expr) = executePostOp expr (\e -> (ExpAssign e AssignSub (ExpConstant (ExpInt 1))))
 executeExp _ = throwError "This type of expression is not supported yet."
 
 

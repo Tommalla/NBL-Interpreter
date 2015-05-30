@@ -125,6 +125,32 @@ typesMatch expr lType = case expr of
 	_ -> False
 
 
+expToDataType :: Exp -> Eval (Maybe DataType)
+expToDataType expr = do
+	res <- validateExp expr
+	(env, _) <- lift $ get
+	return (case res of
+		ExpVar ident -> extractType ident env
+		ExpConstant constant -> case constant of
+				ExpChar _ -> Just (Raw TypeChar)
+				ExpInt _ -> Just (Raw TypeInt)
+				ExpDouble _ -> Just (Raw TypeDouble)
+				ExpBool _ -> Just (Raw TypeBool)
+				_ -> Nothing)
+
+
+isNumeric :: Exp -> Eval Bool
+isNumeric expr = do
+	resType <- expToDataType expr
+	if (isNothing resType) then 
+		return False
+	else
+		return (case (fromJust resType) of
+			Raw TypeInt -> True
+			Raw TypeDouble -> True
+			_ -> False)
+	
+
 validateExp :: Exp -> Eval Exp
 validateExp (ExpAssign exp1 assignmentOperator exp2) = do
 	res1 <- validateExp exp1
@@ -162,6 +188,16 @@ validateExp (ExpGt exp1 exp2) = validateBinaryOp exp1 exp2 (\_ -> Raw TypeBool)
 validateExp (ExpLe exp1 exp2) = validateBinaryOp exp1 exp2 (\_ -> Raw TypeBool)
 validateExp (ExpGe exp1 exp2) = validateBinaryOp exp1 exp2 (\_ -> Raw TypeBool)
 -- TODO go deeper into types, forbid operations on types where it makes no sense.
+-- Pre/Post Inc/Dec
+validateExp (ExpPreInc expr) = do
+	numeric <- isNumeric expr
+	if numeric then
+		return expr
+	else
+		throwError "Not a numeric value."
+validateExp (ExpPreDec expr) = validateExp (ExpPreInc expr)
+validateExp (ExpPostInc expr) = validateExp (ExpPreInc expr)
+validateExp (ExpPostDec expr) = validateExp (ExpPreInc expr)
 validateExp x = throwError ((shows x) "This type of expression is not supported yet.")
 
 
