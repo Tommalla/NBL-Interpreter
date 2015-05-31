@@ -303,6 +303,16 @@ executeExp (ExpPreInc expr) = executeExp (ExpAssign expr AssignAdd (ExpConstant 
 executeExp (ExpPreDec expr) = executeExp (ExpAssign expr AssignSub (ExpConstant (ExpInt 1)))
 executeExp (ExpPostInc expr) = executePostOp expr (\e -> (ExpAssign e AssignAdd (ExpConstant (ExpInt 1))))
 executeExp (ExpPostDec expr) = executePostOp expr (\e -> (ExpAssign e AssignSub (ExpConstant (ExpInt 1))))
+executeExp (ExpPreOp op expr) = do
+	res <- executeExp expr
+	val <- getDirectValue res
+	case op of
+		Negation -> case val of
+			TBool b -> return (ExpConstant (ExpBool (if b then ValFalse else ValTrue)))
+			_ -> throwError "Type not supported for negation."
+		AbsNBL.Plus -> return res
+		Negative -> executeExp (ExpTimes res (ExpConstant (ExpInt (-1))))
+		_ -> throwError "This type of unary operator is not supported yet."
 executeExp _ = throwError "This type of expression is not supported yet."
 
 

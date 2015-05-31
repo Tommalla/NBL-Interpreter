@@ -151,6 +151,17 @@ isNumeric expr = do
 			_ -> False)
 	
 
+isBoolean :: Exp -> Eval Bool
+isBoolean expr = do
+	resType <- expToDataType expr
+	if (isNothing resType) then 
+		return False
+	else
+		return (case (fromJust resType) of
+			Raw TypeBool -> True
+			_ -> False)
+
+
 validateExp :: Exp -> Eval Exp
 validateExp (ExpAssign exp1 assignmentOperator exp2) = do
 	res1 <- validateExp exp1
@@ -198,6 +209,24 @@ validateExp (ExpPreInc expr) = do
 validateExp (ExpPreDec expr) = validateExp (ExpPreInc expr)
 validateExp (ExpPostInc expr) = validateExp (ExpPreInc expr)
 validateExp (ExpPostDec expr) = validateExp (ExpPreInc expr)
+validateExp (ExpPreOp op expr) = do
+	res <- validateExp expr
+	numeric <- isNumeric res
+	boolean <- isBoolean res
+	case op of
+		Plus -> if numeric then 
+				return res
+			else 
+				throwError "Not a numeric type."
+		Negative -> if numeric then 
+				return res
+			else 
+				throwError "Not a numeric type."
+		Negation -> if boolean then
+				return res
+			else
+				throwError "Not a boolean type."
+		_ -> throwError "This type of unary operation is not supported yet."
 validateExp x = throwError ((shows x) "This type of expression is not supported yet.")
 
 
