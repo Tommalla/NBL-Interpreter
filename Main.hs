@@ -243,7 +243,6 @@ getBinaryExpResult exp1 operator exp2 = do
 		Main.Gt -> return (ExpConstant (dataTypeToConstant (val1 `Main.gt` val2)))
 		Main.Le -> return (ExpConstant (dataTypeToConstant (val1 `Main.le` val2)))
 		Main.Ge -> return (ExpConstant (dataTypeToConstant (val1 `Main.ge` val2)))
-		-- TODO boolean conditions.
 		_ -> lift $ throwError "Operator not supported yet,"
 
 
@@ -280,12 +279,11 @@ executeExp (ExpAssign exp1 assignmentOperator exp2) = do
 						-- TODO pointers
 						ExpConstant (ExpInt v) -> TInt v
 						ExpConstant (ExpBool b) -> TBool (b == ValTrue)
-						-- FIXME remove this undef. by moving this to a function inside the monad.
+						-- FIXME remove this undef. by moving this to a function inside a monad.
 						_ -> undefined
 					lift . lift $ put (env, penv, update (\_ -> Just val) (getLoc ident env) state)
 					return res2
 			_ -> lift $ throwError "Trying to assign to something that isn't an lvalue!"
-		-- TODO handle all sorts of different assignment operators
 executeExp (ExpVar ident) = return (ExpVar ident)
 executeExp (ExpConstant constant) = return (ExpConstant constant)
 executeExp (ExpPlus exp1 exp2) = getBinaryExpResult exp1 Main.Plus exp2

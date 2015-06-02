@@ -230,48 +230,48 @@ validateExp (ExpPreOp op expr) = do
 validateExp x = throwError ((shows x) "This type of expression is not supported yet.")
 
 
-validateControlStmt :: ControlStatement -> Eval TypeCheckResult
-validateControlStmt (IfThenElse ctlExp s1 s2) = do
+validateControlStmt :: ControlStatement -> Bool -> Eval TypeCheckResult
+validateControlStmt (IfThenElse ctlExp s1 s2) inLoop = do
 	validateExp ctlExp
-	validateStmt s1
-	validateStmt s2
+	validateStmt s1 inLoop
+	validateStmt s2 inLoop
 	return TypeChecking.Ok
-validateControlStmt (IfThen ctlExp s) = validateControlStmt (IfThenElse ctlExp s (CompS EmptyComp))
+validateControlStmt (IfThen ctlExp s) inLoop = validateControlStmt (IfThenElse ctlExp s (CompS EmptyComp)) inLoop
 
 
 validateLoopStmt :: LoopStatement -> Eval TypeCheckResult
 validateLoopStmt (LoopWhile ctlExp s) = do
 	validateExp ctlExp
-	validateStmt s
+	validateStmt s True
 validateLoopStmt (LoopDoWhile s ctlExp) = validateLoopStmt (LoopWhile ctlExp s)
 validateLoopStmt (LoopForThree (Declarators specifiers initDeclarators) ctlExpStmt deltaExp s) = do
 	prevMapping <- lift $ get
 	mapM_ (\initDeclarator -> validateDeclarator initDeclarator specifiers) initDeclarators
-	validateStmt (ExprS ctlExpStmt)
+	validateStmt (ExprS ctlExpStmt) True
 	validateExp deltaExp
-	validateStmt s
+	validateStmt s True
 	lift $ put prevMapping
 	return TypeChecking.Ok
 validateLoopStmt (LoopForTwo decl ctlExpStmt s) = 
 		validateLoopStmt (LoopForThree decl ctlExpStmt (ExpConstant (ExpInt 0)) s)
 
 
-validateStmt :: Stmt -> Eval TypeCheckResult
-validateStmt (DeclS (Declarators specifiers initDeclarators)) = do
+validateStmt :: Stmt -> Bool -> Eval TypeCheckResult
+validateStmt (DeclS (Declarators specifiers initDeclarators)) _ = do
 	mapM_ (\initDeclarator -> validateDeclarator initDeclarator specifiers) initDeclarators
 	return TypeChecking.Ok
-validateStmt (ExprS (ExtraSemicolon)) = return TypeChecking.Ok
-validateStmt (ExprS (HangingExp exp)) = do
+validateStmt (ExprS (ExtraSemicolon)) _ = return TypeChecking.Ok
+validateStmt (ExprS (HangingExp exp)) _ = do
 	validateExp exp
 	return TypeChecking.Ok
-validateStmt (CompS (StmtComp statements)) = do
-	mapM_ (validateStmt) statements
+validateStmt (CompS (StmtComp statements)) inLoop = do
+	mapM_ (\stmt -> validateStmt stmt inLoop) statements
 	return TypeChecking.Ok
-validateStmt (CompS (EmptyComp)) = return TypeChecking.Ok
-validateStmt (CtlS controlStatement) = validateControlStmt controlStatement
-validateStmt (LoopS loopStatement) = validateLoopStmt loopStatement
-validateStmt (JumpS Break) = return TypeChecking.Ok 	-- FIXME check if in loop
-validateStmt x = throwError ((shows x) " This type of statement is not supported yet.")
+validateStmt (CompS (EmptyComp)) _ = return TypeChecking.Ok
+validateStmt (CtlS controlStatement) inLoop = validateControlStmt controlStatement inLoop
+validateStmt (LoopS loopStatement) _ = validateLoopStmt loopStatement
+validateStmt (JumpS Break) inLoop = if inLoop then return TypeChecking.Ok else throwError "Break without a loop."
+validateStmt x _ = throwError ((shows x) " This type of statement is not supported yet.")
 
 
 -- TODO this function needs to validate the types inside the instructions in CompoundStatement.
@@ -286,7 +286,7 @@ validateFunctionDeclaration declarationSpecifiers (NoPointer (EmptyFuncDecl (Nam
 	else do
 		let penv = insert ident (fromJust returnType, []) penv
 		lift $ put (env, penv)	-- Have to put function in penv.
-		validateStmt (CompS compoundStatement)
+		validateStmt (CompS compoundStatement) False
 		lift $ put (env, penv)	-- Restore the previous state.
 		return TypeChecking.Ok
 validateFunctionDeclaration _ _ _ = throwError "Malformed function declaration. "
