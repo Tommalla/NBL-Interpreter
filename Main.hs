@@ -3,6 +3,7 @@
  -}
 module Main where
 
+import Control.Monad.Cont
 import Control.Monad.Except
 import Control.Monad.Trans.State
 import Data.Map
@@ -36,7 +37,8 @@ type Env = Map Ident Loc
 type Store = Map Loc DataType
 type PEnv = Map Ident ([Ident], CompoundStatement, Env)	-- The list is the list of argument names.
 type StateType = (Env, PEnv, Store)
-type Exec a = ExceptT String (State StateType) a
+type ContS = ContT StateType (ExceptT String (State StateType)) ParseResult
+type ContExec a = ContT StateType (ExceptT String (State StateType)) a
 data Operator = 
 	  Plus 
 	| Minus 
@@ -142,9 +144,9 @@ getLoc :: Ident -> Env -> Loc
 getLoc ident env = env ! ident
 
 
-getVal :: Ident -> Exec DataType
+getVal :: Ident -> ContExec DataType
 getVal ident = do
-	(env, _, store) <- lift $ get
+	(env, _, store) <- lift.lift $ get
 	return (store ! (getLoc ident env))
 
 
@@ -164,10 +166,10 @@ dataTypeToConstant _ = undefined
 
 
 -- Extracts the underlying value. Works only for vars and consts.
-getDirectValue :: Exp -> Exec DataType
+getDirectValue :: Exp -> ContExec DataType
 getDirectValue (ExpConstant constant) = return (constantToDataType constant)
 getDirectValue (ExpVar ident) = getVal ident
-getDirectValue _ = throwError "Cannot extract value from an expression."
+getDirectValue _ = lift $ throwError "Cannot extract value from an expression."
 
 
 -- Returns an initialized object of DataType based on the declaration specifiers.
@@ -185,27 +187,27 @@ createDefaultValue (h:t) = if (Prelude.not (Prelude.null t)) then
 		Type (TypeString) -> (TString "")
 
 
-allocateDirect :: DirectDeclarator -> [DeclarationSpecifier] -> Exec ParseResult
+allocateDirect :: DirectDeclarator -> [DeclarationSpecifier] -> ContExec ParseResult
 allocateDirect (Name ident) specifiers = do
-	(env, penv, state) <- lift $ get
+	(env, penv, state) <- lift.lift $ get
 	let loc = newloc state
-	lift $ put (insert ident loc env, penv, insert loc (createDefaultValue specifiers) state)
+	lift.lift $ put (insert ident loc env, penv, insert loc (createDefaultValue specifiers) state)
 	return ExecOk
-allocateDirect _ _ = throwError "This type of allocation is not supported yet."
+allocateDirect _ _ = lift $ throwError "This type of allocation is not supported yet."
 
 
-allocateDeclarator :: InitDeclarator -> [DeclarationSpecifier] -> Exec ParseResult
+allocateDeclarator :: InitDeclarator -> [DeclarationSpecifier] -> ContExec ParseResult
 allocateDeclarator (PureDecl declarator) specifiers = do
 	case declarator of
 		NoPointer directDeclarator -> allocateDirect directDeclarator specifiers
-		_ -> throwError "Not a NoPointer"
+		_ -> lift $ throwError "Not a NoPointer"
 allocateDeclarator (InitDecl declarator (InitExpr expr)) specifiers = do
 	allocateDeclarator (PureDecl declarator) specifiers
 	case declarator of
 		NoPointer (Name ident) -> executeExp (ExpAssign (ExpVar ident) Assign expr)
-		_ -> throwError "Not a NoPointer"
+		_ -> lift $ throwError "Not a NoPointer"
 	return ExecOk
-allocateDeclarator _ _ = throwError "Allocate declarator not defined for this type of declaration."
+allocateDeclarator _ _ = lift $ throwError "Allocate declarator not defined for this type of declaration."
 
 
 canDivideBy :: DataType -> Bool
@@ -215,7 +217,7 @@ canDivideBy val = case val of
 	_ -> True
 
 
-getBinaryExpResult :: Exp -> Operator -> Exp -> Exec Exp
+getBinaryExpResult :: Exp -> Operator -> Exp -> ContExec Exp
 getBinaryExpResult exp1 operator exp2 = do
 	res1 <- executeExp exp1
 	res2 <- executeExp exp2
@@ -228,11 +230,11 @@ getBinaryExpResult exp1 operator exp2 = do
 		Main.Div -> if (canDivideBy val2) then
 				return (ExpConstant (dataTypeToConstant (val1 `Main.div` val2)))
 			else
-				throwError "Division by zero"
+				lift $ throwError "Division by zero"
 		Main.Mod -> if (canDivideBy val2) then
 			return (ExpConstant (dataTypeToConstant (val1 `Main.mod` val2)))
 			else
-				throwError "Division by zero"
+				lift $ throwError "Division by zero"
 		Main.Or -> return (ExpConstant (dataTypeToConstant (val1 `Main.or` val2)))
 		Main.And -> return (ExpConstant (dataTypeToConstant (val1 `Main.and` val2)))
 		Main.Eq -> return (ExpConstant (dataTypeToConstant (val1 `Main.eq` val2)))
@@ -242,10 +244,10 @@ getBinaryExpResult exp1 operator exp2 = do
 		Main.Le -> return (ExpConstant (dataTypeToConstant (val1 `Main.le` val2)))
 		Main.Ge -> return (ExpConstant (dataTypeToConstant (val1 `Main.ge` val2)))
 		-- TODO boolean conditions.
-		_ -> throwError "Operator not supported yet,"
+		_ -> lift $ throwError "Operator not supported yet,"
 
 
-simplifyAssign :: Exp -> AssignmentOperator -> Exp -> Exec Exp
+simplifyAssign :: Exp -> AssignmentOperator -> Exp -> ContExec Exp
 simplifyAssign exp1 operator exp2 = executeExp (ExpAssign exp1 Assign simpleExp) where
 	simpleExp = case operator of
 		AssignAdd -> ExpPlus exp1 exp2
@@ -257,14 +259,14 @@ simplifyAssign exp1 operator exp2 = executeExp (ExpAssign exp1 Assign simpleExp)
 		AssignOr -> ExpOr exp1 exp2
 
 
-executePostOp :: Exp -> (Exp -> Exp) -> Exec Exp
+executePostOp :: Exp -> (Exp -> Exp) -> ContExec Exp
 executePostOp expr op = do
 	res <- executeExp expr
 	executeExp (op res)
 	return res
 
 
-executeExp :: Exp -> Exec Exp
+executeExp :: Exp -> ContExec Exp
 executeExp (ExpAssign exp1 assignmentOperator exp2) = do
 	res1 <- executeExp exp1
 	res2 <- executeExp exp2
@@ -273,16 +275,16 @@ executeExp (ExpAssign exp1 assignmentOperator exp2) = do
 	else
 		case res1 of
 			ExpVar ident -> do
-					(env, penv, state) <- lift $ get
+					(env, penv, state) <- lift.lift $ get
 					let val = case res2 of 
 						-- TODO pointers
 						ExpConstant (ExpInt v) -> TInt v
 						ExpConstant (ExpBool b) -> TBool (b == ValTrue)
 						-- FIXME remove this undef. by moving this to a function inside the monad.
 						_ -> undefined
-					lift $ put (env, penv, update (\_ -> Just val) (getLoc ident env) state)
+					lift . lift $ put (env, penv, update (\_ -> Just val) (getLoc ident env) state)
 					return res2
-			_ -> throwError "Trying to assign to something that isn't an lvalue!"
+			_ -> lift $ throwError "Trying to assign to something that isn't an lvalue!"
 		-- TODO handle all sorts of different assignment operators
 executeExp (ExpVar ident) = return (ExpVar ident)
 executeExp (ExpConstant constant) = return (ExpConstant constant)
@@ -309,14 +311,14 @@ executeExp (ExpPreOp op expr) = do
 	case op of
 		Negation -> case val of
 			TBool b -> return (ExpConstant (ExpBool (if b then ValFalse else ValTrue)))
-			_ -> throwError "Type not supported for negation."
+			_ -> lift $ throwError "Type not supported for negation."
 		AbsNBL.Plus -> return res
 		Negative -> executeExp (ExpTimes res (ExpConstant (ExpInt (-1))))
-		_ -> throwError "This type of unary operator is not supported yet."
-executeExp _ = throwError "This type of expression is not supported yet."
+		_ -> lift $ throwError "This type of unary operator is not supported yet."
+executeExp _ = lift $ throwError "This type of expression is not supported yet."
 
 
-evaluateCondition :: Exp -> Exec Bool
+evaluateCondition :: Exp -> ContExec Bool
 evaluateCondition ctlExp = do
 	res <- executeExp ctlExp
 	val <- getDirectValue res
@@ -326,68 +328,79 @@ evaluateCondition ctlExp = do
 		_ -> False)
 
 
-executeControlStmt :: ControlStatement -> Exec ParseResult
-executeControlStmt (IfThenElse ctlExp s1 s2) = do
+executeControlStmt :: ControlStatement -> ContS -> ContS -> ContExec ParseResult
+executeControlStmt (IfThenElse ctlExp s1 s2) retCont breakCont = do
 	expTrue <- evaluateCondition ctlExp
 	if (expTrue) then
-		executeStmt s1
+		executeStmt s1 retCont breakCont
 	else
-		executeStmt s2
-executeControlStmt (IfThen ctlExp s) = executeControlStmt (IfThenElse ctlExp s (CompS EmptyComp))
+		executeStmt s2 retCont breakCont
+executeControlStmt (IfThen ctlExp s) retCont breakCont = 
+	executeControlStmt (IfThenElse ctlExp s (CompS EmptyComp)) retCont breakCont
 
 
-executeLoopStmt :: LoopStatement -> Exec ParseResult
-executeLoopStmt (LoopWhile ctlExp s) = 
-	executeStmt (CtlS (IfThen ctlExp (CompS (StmtComp [s, (LoopS (LoopWhile ctlExp s))]))))
-executeLoopStmt (LoopDoWhile s ctlExp) = executeStmt (CompS (StmtComp [s, (LoopS (LoopWhile ctlExp s))]))
-executeLoopStmt (LoopForThree (Declarators specifiers initDeclarators) ctlExpStmt deltaExp s) = do
-	(env, penv, _) <- lift $ get
+executeLoopStmt :: LoopStatement -> ContS -> ContS -> ContExec ParseResult
+executeLoopStmt (LoopWhile ctlExp s) retCont breakCont = 
+	executeStmt (CtlS (IfThen ctlExp (CompS (StmtComp [s, (LoopS (LoopWhile ctlExp s))])))) retCont breakCont
+executeLoopStmt (LoopDoWhile s ctlExp) retCont breakCont = 
+	executeStmt (CompS (StmtComp [s, (LoopS (LoopWhile ctlExp s))])) retCont breakCont
+executeLoopStmt (LoopForThree (Declarators specifiers initDeclarators) ctlExpStmt deltaExp s) retCont breakCont = do
+	(env, penv, _) <- lift.lift $ get
 	mapM_ (\initDeclarator -> allocateDeclarator initDeclarator specifiers) initDeclarators
 	let expr = case ctlExpStmt of 
 		ExtraSemicolon -> ExpConstant (ExpBool ValTrue)	-- For without condition equals while(True)
 		HangingExp e -> e
-	executeLoopStmt (LoopWhile expr (CompS (StmtComp [s, (ExprS (HangingExp deltaExp))])))
-	(_, _, store) <- lift $ get
-	lift $ put (env, penv, store)
+	executeLoopStmt (LoopWhile expr (CompS (StmtComp [s, (ExprS (HangingExp deltaExp))]))) retCont breakCont
+	(_, _, store) <- lift.lift $ get
+	lift.lift $ put (env, penv, store)
 	return ExecOk
-executeLoopStmt (LoopForTwo decl ctlExpStmt s) = 
-		executeLoopStmt (LoopForThree decl ctlExpStmt (ExpConstant (ExpInt 0)) s) -- Yup, it's a hack
+executeLoopStmt (LoopForTwo decl ctlExpStmt s) retCont breakCont = 
+		executeLoopStmt (LoopForThree decl ctlExpStmt (ExpConstant (ExpInt 0)) s) retCont breakCont -- Yup, it's a hack
 
 
-executeStmt :: Stmt -> Exec ParseResult
-executeStmt (DeclS (Declarators specifiers initDeclarators)) = do
+executeStmt :: Stmt -> ContS -> ContS -> ContExec ParseResult
+executeStmt (DeclS (Declarators specifiers initDeclarators)) _ _ = do
 	mapM_ (\initDeclarator -> allocateDeclarator initDeclarator specifiers) initDeclarators
 	return ExecOk
-executeStmt (ExprS (ExtraSemicolon)) = return ExecOk
-executeStmt (ExprS (HangingExp exp)) = do
-	mem <- lift $ get
-	case runState (runExceptT (executeExp exp)) mem of
-		(Right _, mem) -> lift $ put mem
-		(Left err, _) -> throwError err
+executeStmt (ExprS (ExtraSemicolon)) _ _ = return ExecOk
+executeStmt (ExprS (HangingExp exp)) _ _ = do
+	mem <- lift.lift $ get
+	executeExp exp
 	return ExecOk
-executeStmt (CompS (StmtComp statements)) = do
-	(env, penv, _) <- lift $ get 
-	mapM_ (executeStmt) statements
-	(_, _, store) <- lift $ get
-	lift $ put (env, penv, store)
+executeStmt (CompS (StmtComp statements)) retCont breakCont = do
+	(env, penv, _) <- lift.lift $ get 
+	mapM_ (\stmt -> executeStmt stmt retCont breakCont) statements
+	(_, _, store) <- lift.lift $ get
+	lift.lift $ put (env, penv, store)
 	return ExecOk
-executeStmt (CompS EmptyComp) = return ExecOk
-executeStmt (CtlS controlStatement) = executeControlStmt controlStatement
-executeStmt (LoopS loopStatement) = executeLoopStmt loopStatement
-executeStmt _ = throwError "This type of statement is not supported yet."
+executeStmt (CompS EmptyComp) _ _ = return ExecOk
+executeStmt (CtlS controlStatement) retCont breakCont = executeControlStmt controlStatement retCont breakCont
+executeStmt (LoopS loopStatement) retCont _ = callCC $ \breakC -> do
+	executeLoopStmt loopStatement retCont (breakC ExecOk)
+executeStmt (JumpS Break) retCont breakCont = breakCont
+executeStmt _ _ _ = lift $ throwError "This type of statement is not supported yet."
 
 
-executeFunctionDeclaration :: Declarator -> CompoundStatement -> Exec ParseResult
+executeStmtEntry :: Stmt -> ContExec ParseResult
+executeStmtEntry stmt = do
+	let breakC = callCC $ \retHere -> do
+		lift $ throwError "This should never happen"
+	let retC = callCC $ \retHere -> do
+		retHere ExecOk
+	executeStmt stmt retC breakC
+
+
+executeFunctionDeclaration :: Declarator -> CompoundStatement -> ContExec ParseResult
 executeFunctionDeclaration (NoPointer (ParamFuncDecl (Name ident) parameterDeclarations)) compoundStatement = 
-	throwError "Functions with parameters are not supported yet."
+	lift $ throwError "Functions with parameters are not supported yet."
 executeFunctionDeclaration (NoPointer (EmptyFuncDecl (Name ident))) compoundStatement = do
-	(env, penv, store) <- lift $ get
-	lift $ put (env, insert ident ([], compoundStatement, env) penv, store)
+	(env, penv, store) <- lift.lift $ get
+	lift.lift $ put (env, insert ident ([], compoundStatement, env) penv, store)
 	return ExecOk
-executeFunctionDeclaration declarator _ = throwError "Malformed function declaration. "
+executeFunctionDeclaration declarator _ = lift $ throwError "Malformed function declaration. "
 
 
-executeExternalDeclaration :: ExternalDeclaration -> Exec ParseResult
+executeExternalDeclaration :: ExternalDeclaration -> ContExec ParseResult
 executeExternalDeclaration (Func declarationSpecifiers declarator compoundStatement) =
 	executeFunctionDeclaration declarator compoundStatement
 executeExternalDeclaration (Global (Declarators specifiers initDeclarators)) = do
@@ -395,7 +408,7 @@ executeExternalDeclaration (Global (Declarators specifiers initDeclarators)) = d
 	return ExecOk 
 
 
-executeProg :: Prog -> Exec ParseResult
+executeProg :: Prog -> ContExec ParseResult
 executeProg (Program externalDeclarations) = do
 	mapM_ (executeExternalDeclaration) externalDeclarations
 	return ExecOk
@@ -408,13 +421,14 @@ run s = case pProg (myLexer s) of
     	case types p of
     		Left str -> ("Typechecking failed: " ++ str, (empty, empty, empty))
     		Right _ ->	-- This bit needs a refactor...
-    			case (runState (runExceptT (executeProg p)) (empty, empty, empty)) of
+    			case (runState (runExceptT (runContT (executeProg p) (\_ -> return (empty, empty, empty)))) 
+    						(empty, empty, empty)) of
     				((Right _), (e, penv, store)) -> 
     					let mainFunc = Data.Map.lookup (Ident "main") penv in
     						if (isNothing mainFunc) then ("No main declared.", (e, penv, store)) else
 								let (params, compoundStatement, env) = fromJust mainFunc in
-									case (runState (runExceptT (
-												executeStmt (CompS compoundStatement))) (env, penv, store)) of
+									case (runState (runExceptT (runContT (executeStmtEntry (CompS compoundStatement)) 
+												(\_ -> return (env, penv, store)))) (env, penv, store)) of
 										((Right _), mem) -> ("Run successful", mem)
 										((Left str), mem) -> ("Runtime error: " ++ str, mem)
     				((Left str), mem) -> ("Runtime error: " ++ str, mem)

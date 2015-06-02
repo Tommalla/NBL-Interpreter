@@ -270,6 +270,7 @@ validateStmt (CompS (StmtComp statements)) = do
 validateStmt (CompS (EmptyComp)) = return TypeChecking.Ok
 validateStmt (CtlS controlStatement) = validateControlStmt controlStatement
 validateStmt (LoopS loopStatement) = validateLoopStmt loopStatement
+validateStmt (JumpS Break) = return TypeChecking.Ok 	-- FIXME check if in loop
 validateStmt x = throwError ((shows x) " This type of statement is not supported yet.")
 
 
