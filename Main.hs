@@ -5,6 +5,7 @@ module Main where
 
 import Control.Monad.Cont
 import Control.Monad.Except
+import Control.Monad.Fix
 import Control.Monad.Trans.State
 import Data.Map
 import Data.Maybe
@@ -326,57 +327,67 @@ evaluateCondition ctlExp = do
 		_ -> False)
 
 
-executeControlStmt :: ControlStatement -> ContS -> ContS -> ContExec ParseResult
-executeControlStmt (IfThenElse ctlExp s1 s2) retCont breakCont = do
+executeControlStmt :: ControlStatement -> ContS -> ContS -> ContS -> ContExec ParseResult
+executeControlStmt (IfThenElse ctlExp s1 s2) retCont breakCont contCont = do
 	expTrue <- evaluateCondition ctlExp
 	if (expTrue) then
-		executeStmt s1 retCont breakCont
+		executeStmt s1 retCont breakCont contCont
 	else
-		executeStmt s2 retCont breakCont
-executeControlStmt (IfThen ctlExp s) retCont breakCont = 
-	executeControlStmt (IfThenElse ctlExp s (CompS EmptyComp)) retCont breakCont
+		executeStmt s2 retCont breakCont contCont
+executeControlStmt (IfThen ctlExp s) retCont breakCont contCont = 
+	executeControlStmt (IfThenElse ctlExp s (CompS EmptyComp)) retCont breakCont contCont
 
 
-executeLoopStmt :: LoopStatement -> ContS -> ContS -> ContExec ParseResult
-executeLoopStmt (LoopWhile ctlExp s) retCont breakCont = 
-	executeStmt (CtlS (IfThen ctlExp (CompS (StmtComp [s, (LoopS (LoopWhile ctlExp s))])))) retCont breakCont
-executeLoopStmt (LoopDoWhile s ctlExp) retCont breakCont = 
-	executeStmt (CompS (StmtComp [s, (LoopS (LoopWhile ctlExp s))])) retCont breakCont
-executeLoopStmt (LoopForThree (Declarators specifiers initDeclarators) ctlExpStmt deltaExp s) retCont breakCont = do
+executeLoopStmt :: LoopStatement -> ContS -> ContS -> ContS -> ContExec ParseResult
+executeLoopStmt (LoopWhile ctlExp s) retCont breakCont contCont = do
+	cond <- evaluateCondition ctlExp
+	if cond then do
+		res <- callCC $ \contC -> do
+			executeStmt s retCont breakCont (contC ExecOk)
+			breakCont
+		executeLoopStmt (LoopWhile ctlExp s) retCont breakCont contCont
+	else
+		breakCont
+executeLoopStmt (LoopDoWhile s ctlExp) retCont breakCont contCont = 
+	executeStmt (CompS (StmtComp [s, (LoopS (LoopWhile ctlExp s))])) retCont breakCont contCont
+executeLoopStmt (LoopForThree (Declarators specifiers initDeclarators) ctlExpStmt deltaExp s) retCont breakCont contCont = do
 	(env, penv, _) <- lift.lift $ get
 	mapM_ (\initDeclarator -> allocateDeclarator initDeclarator specifiers) initDeclarators
 	let expr = case ctlExpStmt of 
 		ExtraSemicolon -> ExpConstant (ExpBool ValTrue)	-- For without condition equals while(True)
 		HangingExp e -> e
-	executeLoopStmt (LoopWhile expr (CompS (StmtComp [s, (ExprS (HangingExp deltaExp))]))) retCont breakCont
+	executeLoopStmt (LoopWhile expr (CompS (StmtComp [s, (ExprS (HangingExp deltaExp))]))) retCont breakCont contCont
 	(_, _, store) <- lift.lift $ get
 	lift.lift $ put (env, penv, store)
 	return ExecOk
-executeLoopStmt (LoopForTwo decl ctlExpStmt s) retCont breakCont = 
-		executeLoopStmt (LoopForThree decl ctlExpStmt (ExpConstant (ExpInt 0)) s) retCont breakCont -- Yup, it's a hack
+executeLoopStmt (LoopForTwo decl ctlExpStmt s) retCont breakCont contCont = 
+		executeLoopStmt (LoopForThree decl ctlExpStmt (ExpConstant (ExpInt 0)) s) retCont breakCont contCont 
+		-- Yup, it's a hack
 
 
-executeStmt :: Stmt -> ContS -> ContS -> ContExec ParseResult
-executeStmt (DeclS (Declarators specifiers initDeclarators)) _ _ = do
+executeStmt :: Stmt -> ContS -> ContS -> ContS -> ContExec ParseResult
+executeStmt (DeclS (Declarators specifiers initDeclarators)) _ _ _ = do
 	mapM_ (\initDeclarator -> allocateDeclarator initDeclarator specifiers) initDeclarators
 	return ExecOk
-executeStmt (ExprS (ExtraSemicolon)) _ _ = return ExecOk
-executeStmt (ExprS (HangingExp exp)) _ _ = do
+executeStmt (ExprS (ExtraSemicolon)) _ _ _ = return ExecOk
+executeStmt (ExprS (HangingExp exp)) _ _ _ = do
 	mem <- lift.lift $ get
 	executeExp exp
 	return ExecOk
-executeStmt (CompS (StmtComp statements)) retCont breakCont = do
+executeStmt (CompS (StmtComp statements)) retCont breakCont contCont = do
 	(env, penv, _) <- lift.lift $ get 
-	mapM_ (\stmt -> executeStmt stmt retCont breakCont) statements
+	mapM_ (\stmt -> executeStmt stmt retCont breakCont contCont) statements
 	(_, _, store) <- lift.lift $ get
 	lift.lift $ put (env, penv, store)
 	return ExecOk
-executeStmt (CompS EmptyComp) _ _ = return ExecOk
-executeStmt (CtlS controlStatement) retCont breakCont = executeControlStmt controlStatement retCont breakCont
-executeStmt (LoopS loopStatement) retCont _ = callCC $ \breakC -> do
-	executeLoopStmt loopStatement retCont (breakC ExecOk)
-executeStmt (JumpS Break) retCont breakCont = breakCont
-executeStmt _ _ _ = lift $ throwError "This type of statement is not supported yet."
+executeStmt (CompS EmptyComp) _ _ _ = return ExecOk
+executeStmt (CtlS controlStatement) retCont breakCont contCont = 
+	executeControlStmt controlStatement retCont breakCont contCont
+executeStmt (LoopS loopStatement) retCont _ contCont =
+	callCC $ \breakC -> executeLoopStmt loopStatement retCont (breakC ExecOk) contCont
+executeStmt (JumpS Break) _ breakCont _ = breakCont
+executeStmt (JumpS Continue) _ _ contCont = contCont
+executeStmt _ _ _ _ = lift $ throwError "This type of statement is not supported yet."
 
 
 executeStmtEntry :: Stmt -> ContExec ParseResult
@@ -385,7 +396,7 @@ executeStmtEntry stmt = do
 		lift $ throwError "This should never happen"
 	let retC = callCC $ \retHere -> do
 		retHere ExecOk
-	executeStmt stmt retC breakC
+	executeStmt stmt retC breakC breakC
 
 
 executeFunctionDeclaration :: Declarator -> CompoundStatement -> ContExec ParseResult

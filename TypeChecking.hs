@@ -271,6 +271,7 @@ validateStmt (CompS (EmptyComp)) _ = return TypeChecking.Ok
 validateStmt (CtlS controlStatement) inLoop = validateControlStmt controlStatement inLoop
 validateStmt (LoopS loopStatement) _ = validateLoopStmt loopStatement
 validateStmt (JumpS Break) inLoop = if inLoop then return TypeChecking.Ok else throwError "Break without a loop."
+validateStmt (JumpS Continue) inLoop = validateStmt (JumpS Break) inLoop
 validateStmt x _ = throwError ((shows x) " This type of statement is not supported yet.")
 
 
