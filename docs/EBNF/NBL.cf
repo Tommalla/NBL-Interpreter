@@ -86,6 +86,7 @@ ExprS.    Stmt ::= ExpressionStatement;
 CtlS.     Stmt ::= ControlStatement;
 LoopS.    Stmt ::= LoopStatement;
 JumpS.    Stmt ::= JumpStatement;
+PrintS.	  Stmt ::= PrintStatement;
 
 EmptyComp.   CompoundStatement ::= "{" "}";
 StmtComp.   CompoundStatement ::= "{" [Stmt] "}";
@@ -105,6 +106,8 @@ Continue.   JumpStatement ::= "continue" ";";
 Break. JumpStatement ::= "break" ";";
 ReturnVoid.  JumpStatement ::= "return" ";";
 ReturnVal.  JumpStatement ::= "return" Exp ";";
+
+Print.	PrintStatement ::= "print(" Exp ")" ";";
 
 (:[]).   [Stmt] ::= Stmt ;
 (:).     [Stmt] ::= Stmt [Stmt];
@@ -138,12 +141,12 @@ ExpPostInc.    Exp14 ::= Exp14 "++";
 ExpPostDec.    Exp14 ::= Exp14 "--";
 ExpVar.        Exp15 ::= Ident;
 ExpConstant.      Exp15 ::= Constant;
-ExpString.     Exp15 ::= String;
 
 ExpChar.         Constant ::= Char;
 ExpDouble.      Constant ::= Double;
 ExpInt.          Constant ::= Integer;
 ExpBool.		Constant ::= BoolConstant;
+ExpString.     Constant ::= String;
 
 internal ExpDouble. Constant ::= Double;
 

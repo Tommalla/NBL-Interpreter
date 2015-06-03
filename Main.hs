@@ -38,8 +38,8 @@ type Env = Map Ident Loc
 type Store = Map Loc DataType
 type PEnv = Map Ident ([Ident], CompoundStatement, Env)	-- The list is the list of argument names.
 type StateType = (Env, PEnv, Store)
-type ContS = ContT StateType (ExceptT String (State StateType)) ParseResult
-type ContExec a = ContT StateType (ExceptT String (State StateType)) a
+type ContExec a = ContT StateType (ExceptT String (StateT StateType (IO))) a
+type ContS = ContExec ParseResult
 data Operator = 
 	  Plus 
 	| Minus 
@@ -280,6 +280,7 @@ executeExp (ExpAssign exp1 assignmentOperator exp2) = do
 						-- TODO pointers
 						ExpConstant (ExpInt v) -> TInt v
 						ExpConstant (ExpBool b) -> TBool (b == ValTrue)
+						ExpConstant (ExpString s) -> TString s
 						-- FIXME remove this undef. by moving this to a function inside a monad.
 						_ -> undefined
 					lift . lift $ put (env, penv, update (\_ -> Just val) (getLoc ident env) state)
@@ -387,6 +388,13 @@ executeStmt (LoopS loopStatement) retCont _ contCont =
 	callCC $ \breakC -> executeLoopStmt loopStatement retCont (breakC ExecOk) contCont
 executeStmt (JumpS Break) _ breakCont _ = breakCont
 executeStmt (JumpS Continue) _ _ contCont = contCont
+executeStmt (PrintS (Print expr)) _ _ _ = do
+	res <- executeExp expr
+	val <- getDirectValue res
+	liftIO $ (case val of
+		TInt i -> print i
+		_ -> print "<Unable to print: printing for this type not defined>")
+	return ExecOk
 executeStmt _ _ _ _ = lift $ throwError "This type of statement is not supported yet."
 
 
@@ -423,30 +431,43 @@ executeProg (Program externalDeclarations) = do
 	return ExecOk
 
 
-run :: String -> (String, StateType)
-run s = case pProg (myLexer s) of
-    Bad err -> ("Parsing error: " ++ err, (empty, empty, empty))
-    Ok p -> 
-    	case types p of
-    		Left str -> ("Typechecking failed: " ++ str, (empty, empty, empty))
-    		Right _ ->	-- This bit needs a refactor...
-    			case (runState (runExceptT (runContT (executeProg p) (\_ -> return (empty, empty, empty)))) 
-    						(empty, empty, empty)) of
-    				((Right _), (e, penv, store)) -> 
-    					let mainFunc = Data.Map.lookup (Ident "main") penv in
-    						if (isNothing mainFunc) then ("No main declared.", (e, penv, store)) else
-								let (params, compoundStatement, env) = fromJust mainFunc in
-									case (runState (runExceptT (runContT (executeStmtEntry (CompS compoundStatement)) 
-												(\_ -> return (env, penv, store)))) (env, penv, store)) of
-										((Right _), mem) -> ("Run successful", mem)
-										((Left str), mem) -> ("Runtime error: " ++ str, mem)
-    				((Left str), mem) -> ("Runtime error: " ++ str, mem)
+run :: String -> IO StateType
+run s = do case (pProg (myLexer s)) of
+    		Bad err -> do 
+    			print ("Parsing error: " ++ err)
+    			return (empty, empty, empty)
+    		Ok p -> case types p of
+    			Left str -> do
+    				print ("Typechecking failed: " ++ str)
+    				return (empty, empty, empty)
+    			Right _ ->	do-- This bit needs a refactor...
+    				res <- (runStateT (runExceptT (runContT (executeProg p) (\_ -> return (empty, empty, empty)))) 
+    							(empty, empty, empty))
+    				case res of
+    					((Right _), (e, penv, store)) -> do
+    						let mainFunc = Data.Map.lookup (Ident "main") penv
+    						if (isNothing mainFunc) then do
+    							print "No main declared."
+    							return (e, penv, store)
+    						else do
+								let (params, compoundStatement, env) = fromJust mainFunc
+								res2 <- (runStateT (runExceptT (runContT (executeStmtEntry (CompS compoundStatement)) 
+										(\_ -> return (env, penv, store)))) (env, penv, store))
+								case res2 of
+									((Right _), mem) -> do
+										print "Run successful"
+										return mem
+									((Left str), mem) -> do
+										print ("Runtime error: " ++ str)
+										return mem
+    					((Left str), mem) -> do
+    						print ("Runtime error: " ++ str)
+    						return mem
 
 
 main = do
   code <- getContents
-  let (out, (env, _, store)) = run code
-  print $ out 
+  (env, _, store) <- run code
   print $ ("Env:", env)
   print $ ("Store:", store)
  
