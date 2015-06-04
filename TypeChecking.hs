@@ -125,41 +125,39 @@ typesMatch expr lType = case expr of
 	_ -> False
 
 
-expToDataType :: Exp -> Eval (Maybe DataType)
+expToDataType :: Exp -> Eval DataType
 expToDataType expr = do
 	res <- validateExp expr
 	(env, _) <- lift $ get
-	return (case res of
-		ExpVar ident -> extractType ident env
+	case res of
+		ExpVar ident -> do
+			let t = extractType ident env
+			case t of
+				Just res -> return res
+				Nothing -> throwError ((shows ident) " does not type.")
 		ExpConstant constant -> case constant of
-				ExpChar _ -> Just (Raw TypeChar)
-				ExpInt _ -> Just (Raw TypeInt)
-				ExpDouble _ -> Just (Raw TypeDouble)
-				ExpBool _ -> Just (Raw TypeBool)
-				_ -> Nothing)
+				ExpChar _ -> return (Raw TypeChar)
+				ExpInt _ -> return (Raw TypeInt)
+				ExpDouble _ -> return (Raw TypeDouble)
+				ExpBool _ -> return (Raw TypeBool)
+				_ -> throwError "Constant of unknown type"
 
 
 isNumeric :: Exp -> Eval Bool
 isNumeric expr = do
 	resType <- expToDataType expr
-	if (isNothing resType) then 
-		return False
-	else
-		return (case (fromJust resType) of
-			Raw TypeInt -> True
-			Raw TypeDouble -> True
-			_ -> False)
+	return (case resType of
+		Raw TypeInt -> True
+		Raw TypeDouble -> True
+		_ -> False)
 	
 
 isBoolean :: Exp -> Eval Bool
 isBoolean expr = do
 	resType <- expToDataType expr
-	if (isNothing resType) then 
-		return False
-	else
-		return (case (fromJust resType) of
-			Raw TypeBool -> True
-			_ -> False)
+	return (case resType of
+		Raw TypeBool -> True
+		_ -> False)
 
 
 validateExp :: Exp -> Eval Exp
@@ -230,52 +228,63 @@ validateExp (ExpPreOp op expr) = do
 validateExp x = throwError ((shows x) "This type of expression is not supported yet.")
 
 
-validateControlStmt :: ControlStatement -> Bool -> Eval TypeCheckResult
-validateControlStmt (IfThenElse ctlExp s1 s2) inLoop = do
+validateControlStmt :: ControlStatement -> Bool -> DataType -> Eval TypeCheckResult
+validateControlStmt (IfThenElse ctlExp s1 s2) inLoop retType = do
 	validateExp ctlExp
-	validateStmt s1 inLoop
-	validateStmt s2 inLoop
+	validateStmt s1 inLoop retType
+	validateStmt s2 inLoop retType
 	return TypeChecking.Ok
-validateControlStmt (IfThen ctlExp s) inLoop = validateControlStmt (IfThenElse ctlExp s (CompS EmptyComp)) inLoop
+validateControlStmt (IfThen ctlExp s) inLoop retType = 
+	validateControlStmt (IfThenElse ctlExp s (CompS EmptyComp)) inLoop retType
 
 
-validateLoopStmt :: LoopStatement -> Eval TypeCheckResult
-validateLoopStmt (LoopWhile ctlExp s) = do
+validateLoopStmt :: LoopStatement -> DataType -> Eval TypeCheckResult
+validateLoopStmt (LoopWhile ctlExp s) retType = do
 	validateExp ctlExp
-	validateStmt s True
-validateLoopStmt (LoopDoWhile s ctlExp) = validateLoopStmt (LoopWhile ctlExp s)
-validateLoopStmt (LoopForThree (Declarators specifiers initDeclarators) ctlExpStmt deltaExp s) = do
+	validateStmt s True retType
+validateLoopStmt (LoopDoWhile s ctlExp) retType = validateLoopStmt (LoopWhile ctlExp s) retType
+validateLoopStmt (LoopForThree (Declarators specifiers initDeclarators) ctlExpStmt deltaExp s) retType = do
 	prevMapping <- lift $ get
 	mapM_ (\initDeclarator -> validateDeclarator initDeclarator specifiers) initDeclarators
-	validateStmt (ExprS ctlExpStmt) True
+	validateStmt (ExprS ctlExpStmt) True retType
 	validateExp deltaExp
-	validateStmt s True
+	validateStmt s True retType
 	lift $ put prevMapping
 	return TypeChecking.Ok
-validateLoopStmt (LoopForTwo decl ctlExpStmt s) = 
-		validateLoopStmt (LoopForThree decl ctlExpStmt (ExpConstant (ExpInt 0)) s)
+validateLoopStmt (LoopForTwo decl ctlExpStmt s) retType = 
+		validateLoopStmt (LoopForThree decl ctlExpStmt (ExpConstant (ExpInt 0)) s) retType
 
 
-validateStmt :: Stmt -> Bool -> Eval TypeCheckResult
-validateStmt (DeclS (Declarators specifiers initDeclarators)) _ = do
+validateStmt :: Stmt -> Bool -> DataType -> Eval TypeCheckResult
+validateStmt (DeclS (Declarators specifiers initDeclarators)) _ _ = do
 	mapM_ (\initDeclarator -> validateDeclarator initDeclarator specifiers) initDeclarators
 	return TypeChecking.Ok
-validateStmt (ExprS (ExtraSemicolon)) _ = return TypeChecking.Ok
-validateStmt (ExprS (HangingExp exp)) _ = do
+validateStmt (ExprS (ExtraSemicolon)) _ _ = return TypeChecking.Ok
+validateStmt (ExprS (HangingExp exp)) _ _ = do
 	validateExp exp
 	return TypeChecking.Ok
-validateStmt (CompS (StmtComp statements)) inLoop = do
-	mapM_ (\stmt -> validateStmt stmt inLoop) statements
+validateStmt (CompS (StmtComp statements)) inLoop retType = do
+	mapM_ (\stmt -> validateStmt stmt inLoop retType) statements
 	return TypeChecking.Ok
-validateStmt (CompS (EmptyComp)) _ = return TypeChecking.Ok
-validateStmt (CtlS controlStatement) inLoop = validateControlStmt controlStatement inLoop
-validateStmt (LoopS loopStatement) _ = validateLoopStmt loopStatement
-validateStmt (JumpS Break) inLoop = if inLoop then return TypeChecking.Ok else throwError "Break without a loop."
-validateStmt (JumpS Continue) inLoop = validateStmt (JumpS Break) inLoop
-validateStmt (PrintS (Print expr)) _ = do
+validateStmt (CompS (EmptyComp)) _ _ = return TypeChecking.Ok
+validateStmt (CtlS controlStatement) inLoop retType = validateControlStmt controlStatement inLoop retType
+validateStmt (LoopS loopStatement) _ retType = validateLoopStmt loopStatement retType
+validateStmt (JumpS Break) inLoop _ = if inLoop then return TypeChecking.Ok else throwError "Break without a loop."
+validateStmt (JumpS Continue) inLoop retType = validateStmt (JumpS Break) inLoop retType
+validateStmt (PrintS (Print expr)) _ _ = do
 	validateExp expr
 	return TypeChecking.Ok
-validateStmt x _ = throwError ((shows x) " This type of statement is not supported yet.")
+validateStmt (JumpS ReturnVoid) _ retType = if (retType == Raw TypeVoid) then 
+		return TypeChecking.Ok
+	else
+		throwError "Return without a returned value in a non-void function."
+validateStmt (JumpS (ReturnVal expr)) _ retType = do
+	returnType <- expToDataType expr
+	if (returnType == retType) then
+		return TypeChecking.Ok
+	else
+		throwError ((shows (returnType, retType)) " Expected and actual return types don't match.")
+validateStmt x _ _ = throwError ((shows x) " This type of statement is not supported yet.")
 
 
 -- TODO this function needs to validate the types inside the instructions in CompoundStatement.
@@ -290,7 +299,7 @@ validateFunctionDeclaration declarationSpecifiers (NoPointer (EmptyFuncDecl (Nam
 	else do
 		let penv = insert ident (fromJust returnType, []) penv
 		lift $ put (env, penv)	-- Have to put function in penv.
-		validateStmt (CompS compoundStatement) False
+		validateStmt (CompS compoundStatement) False (fromJust returnType)
 		lift $ put (env, penv)	-- Restore the previous state.
 		return TypeChecking.Ok
 validateFunctionDeclaration _ _ _ = throwError "Malformed function declaration. "
