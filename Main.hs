@@ -339,6 +339,19 @@ executeControlStmt (IfThen ctlExp s) retCont breakCont contCont =
 	executeControlStmt (IfThenElse ctlExp s (CompS EmptyComp)) retCont breakCont contCont
 
 
+executeForInside :: Exp -> Exp -> Stmt -> ContS -> ContS -> ContS -> ContExec ParseResult
+executeForInside ctlExp deltaExp s retCont breakCont contCont = do
+	cond <- evaluateCondition ctlExp
+	if cond then do
+		res <- callCC $ \contC -> do
+			executeStmt s retCont breakCont (contC ExecOk)
+			breakCont
+		executeExp deltaExp
+		executeForInside ctlExp deltaExp s retCont breakCont contCont
+	else
+		breakCont
+
+
 executeLoopStmt :: LoopStatement -> ContS -> ContS -> ContS -> ContExec ParseResult
 executeLoopStmt (LoopWhile ctlExp s) retCont breakCont contCont = do
 	cond <- evaluateCondition ctlExp
@@ -357,7 +370,7 @@ executeLoopStmt (LoopForThree (Declarators specifiers initDeclarators) ctlExpStm
 	let expr = case ctlExpStmt of 
 		ExtraSemicolon -> ExpConstant (ExpBool ValTrue)	-- For without condition equals while(True)
 		HangingExp e -> e
-	executeLoopStmt (LoopWhile expr (CompS (StmtComp [s, (ExprS (HangingExp deltaExp))]))) retCont breakCont contCont
+	executeForInside expr deltaExp s retCont breakCont contCont
 	(_, _, store) <- lift.lift $ get
 	lift.lift $ put (env, penv, store)
 	return ExecOk
