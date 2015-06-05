@@ -36,10 +36,12 @@ data ParseResult = ExecOk | Error String
 type Loc = Int
 type Env = Map Ident Loc
 type Store = Map Loc DataType
-type PEnv = Map Ident ([Ident], CompoundStatement, Env)	-- The list is the list of argument names.
+type Func = ([Ident], CompoundStatement, Env)	-- The list is the list of argument names.
+type PEnv = Map Ident Func
 type StateType = (Env, PEnv, Store)
 type ContExec a = ContT StateType (ExceptT String (StateT StateType (IO))) a
 type ContS = ContExec ParseResult
+type ContExp = Exp -> ContExec Exp
 data Operator = 
 	  Plus 
 	| Minus 
@@ -149,6 +151,16 @@ getVal :: Ident -> ContExec DataType
 getVal ident = do
 	(env, _, store) <- lift.lift $ get
 	return (store ! (getLoc ident env))
+
+
+getFunc :: Ident -> ContExec Func
+getFunc ident = do
+	(_, penv, _) <- lift.lift $ get
+	return (penv ! ident)
+
+
+getBadBreakCont :: ContS
+getBadBreakCont = callCC $ \retHere -> do lift $ throwError "This should never happen"
 
 
 constantToDataType :: Constant -> DataType
@@ -315,6 +327,21 @@ executeExp (ExpPreOp op expr) = do
 		AbsNBL.Plus -> return res
 		Negative -> executeExp (ExpTimes res (ExpConstant (ExpInt (-1))))
 		_ -> lift $ throwError "This type of unary operator is not supported yet."
+executeExp (ExpFunc expr) = do
+	res <- executeExp expr
+	case res of
+		ExpVar ident -> do
+			(_, compoundStatement, funcEnv) <- getFunc ident
+			(env, penv, store) <- lift.lift $ get
+			lift.lift $ put (funcEnv, penv, store)
+			let breakC = getBadBreakCont
+			res <- callCC $ \retC -> do
+				executeStmt (CompS compoundStatement) retC breakC breakC
+				retC (ExpConstant (ExpInt 0))
+			(_, _, newStore) <- lift.lift $ get
+			lift.lift $ put (env, penv, newStore)
+			return res
+		_ -> lift $ throwError "The function was not declared." 
 executeExp _ = lift $ throwError "This type of expression is not supported yet."
 
 
@@ -328,7 +355,7 @@ evaluateCondition ctlExp = do
 		_ -> False)
 
 
-executeControlStmt :: ControlStatement -> ContS -> ContS -> ContS -> ContExec ParseResult
+executeControlStmt :: ControlStatement -> ContExp -> ContS -> ContS -> ContExec ParseResult
 executeControlStmt (IfThenElse ctlExp s1 s2) retCont breakCont contCont = do
 	expTrue <- evaluateCondition ctlExp
 	if (expTrue) then
@@ -339,11 +366,11 @@ executeControlStmt (IfThen ctlExp s) retCont breakCont contCont =
 	executeControlStmt (IfThenElse ctlExp s (CompS EmptyComp)) retCont breakCont contCont
 
 
-executeForInside :: Exp -> Exp -> Stmt -> ContS -> ContS -> ContS -> ContExec ParseResult
+executeForInside :: Exp -> Exp -> Stmt -> ContExp -> ContS -> ContS -> ContExec ParseResult
 executeForInside ctlExp deltaExp s retCont breakCont contCont = do
 	cond <- evaluateCondition ctlExp
 	if cond then do
-		res <- callCC $ \contC -> do
+		callCC $ \contC -> do
 			executeStmt s retCont breakCont (contC ExecOk)
 			breakCont
 		executeExp deltaExp
@@ -352,11 +379,11 @@ executeForInside ctlExp deltaExp s retCont breakCont contCont = do
 		breakCont
 
 
-executeLoopStmt :: LoopStatement -> ContS -> ContS -> ContS -> ContExec ParseResult
+executeLoopStmt :: LoopStatement -> ContExp -> ContS -> ContS -> ContExec ParseResult
 executeLoopStmt (LoopWhile ctlExp s) retCont breakCont contCont = do
 	cond <- evaluateCondition ctlExp
 	if cond then do
-		res <- callCC $ \contC -> do
+		callCC $ \contC -> do
 			executeStmt s retCont breakCont (contC ExecOk)
 			breakCont
 		executeLoopStmt (LoopWhile ctlExp s) retCont breakCont contCont
@@ -379,7 +406,7 @@ executeLoopStmt (LoopForTwo decl ctlExpStmt s) retCont breakCont contCont =
 		-- Yup, it's a hack
 
 
-executeStmt :: Stmt -> ContS -> ContS -> ContS -> ContExec ParseResult
+executeStmt :: Stmt -> ContExp -> ContS -> ContS -> ContExec ParseResult
 executeStmt (DeclS (Declarators specifiers initDeclarators)) _ _ _ = do
 	mapM_ (\initDeclarator -> allocateDeclarator initDeclarator specifiers) initDeclarators
 	return ExecOk
@@ -401,6 +428,13 @@ executeStmt (LoopS loopStatement) retCont _ contCont =
 	callCC $ \breakC -> executeLoopStmt loopStatement retCont (breakC ExecOk) contCont
 executeStmt (JumpS Break) _ breakCont _ = breakCont
 executeStmt (JumpS Continue) _ _ contCont = contCont
+executeStmt (JumpS ReturnVoid) retCont _ _ = do
+	retCont (ExpConstant (ExpInt 0))
+	return ExecOk
+executeStmt (JumpS (ReturnVal expr)) retCont _ _ = do
+	res <- executeExp expr
+	retCont res
+	return ExecOk
 executeStmt (PrintS (Print expr)) _ _ _ = do
 	res <- executeExp expr
 	val <- getDirectValue res
@@ -413,20 +447,40 @@ executeStmt _ _ _ _ = lift $ throwError "This type of statement is not supported
 
 executeStmtEntry :: Stmt -> ContExec ParseResult
 executeStmtEntry stmt = do
-	let breakC = callCC $ \retHere -> do
-		lift $ throwError "This should never happen"
-	let retC = callCC $ \retHere -> do
-		retHere ExecOk
-	executeStmt stmt retC breakC breakC
+	let breakC = getBadBreakCont
+	callCC $ \retC -> do
+		executeStmt stmt retC breakC breakC
+		lift $ throwError "Dunno."
+	return ExecOk
+
+
+parametersToIdentList :: ParameterDeclarations -> ContExec [Ident]
+parametersToIdentList (ParamDecl parameterDeclaration) = do 
+	case parameterDeclaration of
+		OnlyType _ -> lift $ throwError "Not supported"
+		TypeAndParam specifiers declarator -> do 
+			case declarator of
+				NoPointer (Name ident) -> return [ident]
+				_ -> lift $ throwError "Unsupported declarator in parameters."
+parametersToIdentList (MoreParamDecl paramDecls paramDecl) = do
+	res1 <- parametersToIdentList paramDecls
+	res2 <- parametersToIdentList (ParamDecl paramDecl)
+	return ((head res2) : res1)
+
+
+memorizeFunc :: Ident -> ([Ident], CompoundStatement) -> ContExec ParseResult
+memorizeFunc ident (paramIdents, s) = do
+	(env, penv, store) <- lift.lift $ get
+	lift.lift $ put (env, insert ident (paramIdents, s, env) penv, store)
+	return ExecOk 
 
 
 executeFunctionDeclaration :: Declarator -> CompoundStatement -> ContExec ParseResult
-executeFunctionDeclaration (NoPointer (ParamFuncDecl (Name ident) parameterDeclarations)) compoundStatement = 
-	lift $ throwError "Functions with parameters are not supported yet."
-executeFunctionDeclaration (NoPointer (EmptyFuncDecl (Name ident))) compoundStatement = do
-	(env, penv, store) <- lift.lift $ get
-	lift.lift $ put (env, insert ident ([], compoundStatement, env) penv, store)
-	return ExecOk
+executeFunctionDeclaration (NoPointer (ParamFuncDecl (Name ident) parameterDeclarations)) compoundStatement = do
+	idents <- parametersToIdentList parameterDeclarations
+	memorizeFunc ident (idents, compoundStatement)
+executeFunctionDeclaration (NoPointer (EmptyFuncDecl (Name ident))) compoundStatement =
+	memorizeFunc ident ([], compoundStatement)
 executeFunctionDeclaration declarator _ = lift $ throwError "Malformed function declaration. "
 
 

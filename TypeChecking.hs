@@ -21,7 +21,8 @@ data DataType = Raw TypeSpecifier | TConst DataType | TPointer DataType
 data TypeCheckResult = Ok | Failed
 		deriving (Eq)
 type Env = Map Ident DataType
-type PEnv = Map Ident (DataType, [DataType]) -- The tuple is the return type and then params types.
+type PSign = (DataType, [DataType]) -- The tuple is the return type and then params types.
+type PEnv = Map Ident PSign
 type Eval a = ExceptT String (State (Env, PEnv)) a
 
 
@@ -38,8 +39,17 @@ getType (h:t) = if (not (Prelude.null t)) then
 		Type anything -> Just (Raw anything)
 
 
-extractType :: Ident -> Env -> Maybe DataType
-extractType = Data.Map.lookup
+extractVarType :: Ident -> Env -> Maybe DataType
+extractVarType = Data.Map.lookup
+
+
+-- Extracts the signature of the function.
+extractFuncSign :: Ident -> Eval PSign
+extractFuncSign ident = do
+	(_, penv) <- lift $ get
+	case Data.Map.lookup ident penv of
+		Just res -> return res
+		Nothing -> throwError ((shows ident) " - function not declared.")
 
 
 getVarOrConstType :: Exp -> Eval (Maybe DataType)
@@ -50,16 +60,16 @@ getVarOrConstType (ExpConstant constant) = return (case constant of
  	ExpBool  _ -> Just (Raw TypeBool))
 getVarOrConstType (ExpVar ident) = do
 	(env, _) <- lift $ get
-	return (extractType ident env)
+	return (extractVarType ident env)
 getVarOrConstType _ = return Nothing
 
 
-toConstant :: DataType -> Maybe Exp
-toConstant (Raw TypeChar) = Just (ExpConstant (ExpChar '0'))
-toConstant (Raw TypeDouble) = Just (ExpConstant (ExpDouble 0))
-toConstant (Raw TypeInt) = Just (ExpConstant (ExpInt 0))
-toConstant (Raw TypeBool) = Just (ExpConstant (ExpBool ValTrue))
-toConstant _ = Nothing
+toConstant :: DataType -> Eval Exp
+toConstant (Raw TypeChar) = return (ExpConstant (ExpChar '0'))
+toConstant (Raw TypeDouble) = return (ExpConstant (ExpDouble 0))
+toConstant (Raw TypeInt) = return (ExpConstant (ExpInt 0))
+toConstant (Raw TypeBool) = return (ExpConstant (ExpBool ValTrue))
+toConstant t = throwError ((shows t) " is inconvertible to ExpConstant.")
 
 
 getCommonType :: Maybe DataType -> Maybe DataType -> Eval (Maybe DataType)
@@ -104,13 +114,8 @@ validateBinaryOp exp1 exp2 toResType = do
 	t2 <- getVarOrConstType res2
 	tRes <- getCommonType t1 t2
 	case tRes of
-		Just res -> do
-			let finalRes = toConstant (toResType res)
-			if (not (isNothing finalRes)) then
-				return (fromJust finalRes)	-- An arithmetic operation always returns rvalue.
-			else
-				throwError "The result is inconvertible to a constant."
-		Nothing -> throwError "Expressions on different types are not supported."
+		Just res -> toConstant (toResType res)
+		Nothing -> throwError ((shows (t1, t2))"Expressions on different types are not supported.")
 
 
 typesMatch :: Exp -> DataType -> Bool
@@ -131,7 +136,7 @@ expToDataType expr = do
 	(env, _) <- lift $ get
 	case res of
 		ExpVar ident -> do
-			let t = extractType ident env
+			let t = extractVarType ident env
 			case t of
 				Just res -> return res
 				Nothing -> throwError ((shows ident) " does not type.")
@@ -167,7 +172,7 @@ validateExp (ExpAssign exp1 assignmentOperator exp2) = do
 	case res1 of
 		ExpVar ident -> do
 				(env, penv) <- lift $ get
-				let lType = extractType ident env
+				let lType = extractVarType ident env
 				if (isNothing lType) then
 					throwError "lvalue does not type."
 				else do
@@ -188,7 +193,6 @@ validateExp (ExpDiv exp1 exp2) = validateBinaryOp exp1 exp2 (id)
 validateExp (ExpMod exp1 exp2) = validateBinaryOp exp1 exp2 (id)
 validateExp (ExpOr exp1 exp2) = validateBinaryOp exp1 exp2 (id)
 validateExp (ExpAnd exp1 exp2) = validateBinaryOp exp1 exp2 (id)
-validateExp (ExpOr exp1 exp2) = validateBinaryOp exp1 exp2 (id)
 -- All below need to return bool.
 validateExp (ExpEq exp1 exp2) = validateBinaryOp exp1 exp2 (\_ -> Raw TypeBool)
 validateExp (ExpNeq exp1 exp2) = validateBinaryOp exp1 exp2 (\_ -> Raw TypeBool)
@@ -225,6 +229,18 @@ validateExp (ExpPreOp op expr) = do
 			else
 				throwError "Not a boolean type."
 		_ -> throwError "This type of unary operation is not supported yet."
+validateExp (ExpFunc expr) = do
+	res <- validateExp expr
+	case res of
+		ExpVar ident -> do
+			(_, penv) <- lift $ get
+			(retType, paramTypes) <- extractFuncSign ident
+			if (Prelude.null paramTypes) then do
+				result <- toConstant retType
+				return result
+			else 
+				throwError "Not enought arguments passed to the function."
+		_ -> throwError "Function execution: Does not type."
 validateExp x = throwError ((shows x) "This type of expression is not supported yet.")
 
 
@@ -287,34 +303,90 @@ validateStmt (JumpS (ReturnVal expr)) _ retType = do
 validateStmt x _ _ = throwError ((shows x) " This type of statement is not supported yet.")
 
 
--- TODO this function needs to validate the types inside the instructions in CompoundStatement.
-validateFunctionDeclaration :: [DeclarationSpecifier] -> Declarator -> CompoundStatement -> Eval TypeCheckResult
-validateFunctionDeclaration declarationSpecifiers (NoPointer (ParamFuncDecl (Name ident) parameterDeclarations)) 
-		compoundStatement = throwError "Functions with parameters are not supported yet."
-validateFunctionDeclaration declarationSpecifiers (NoPointer (EmptyFuncDecl (Name ident))) compoundStatement = do
-	(env, penv) <- lift $ get
-	let returnType = getType declarationSpecifiers
+validateParamDecls :: ParameterDeclarations -> Eval TypeCheckResult
+validateParamDecls (ParamDecl parameterDeclaration) = do 
+	case parameterDeclaration of
+		OnlyType _ -> return TypeChecking.Ok -- FIXME?
+		TypeAndParam declarationSpecifiers declarator -> do
+			case declarator of
+				NoPointer directDeclarator -> validateDirect directDeclarator declarationSpecifiers
+				_ -> throwError "Pointers not supported yet."
+validateParamDecls (MoreParamDecl paramDecls paramDecl) = do
+	validateParamDecls (paramDecls)
+	validateParamDecls (ParamDecl paramDecl)
+
+
+parametersToTypesList :: ParameterDeclarations -> Eval [DataType]
+parametersToTypesList (ParamDecl parameterDeclaration) = do 
+	case parameterDeclaration of
+		OnlyType _ -> throwError "Not supported"
+		TypeAndParam specifiers declarator -> do 
+			case declarator of
+				NoPointer _ -> do
+					let t = getType specifiers
+					if (isNothing t) then
+						throwError "Cannot deduce the parameter type."
+					else
+						return [fromJust t]
+				_ -> throwError "Unsupported declarator in parameters."
+parametersToTypesList (MoreParamDecl paramDecls paramDecl) = do
+	res1 <- parametersToTypesList paramDecls
+	res2 <- parametersToTypesList (ParamDecl paramDecl)
+	return ((head res2) : res1)
+
+
+validateFunctionStmt :: Maybe DataType -> Stmt -> Eval TypeCheckResult
+validateFunctionStmt returnType s = do
 	if (isNothing returnType) then
 		throwError "Incorrect function return type!"
 	else do
-		let penv = insert ident (fromJust returnType, []) penv
-		lift $ put (env, penv)	-- Have to put function in penv.
-		validateStmt (CompS compoundStatement) False (fromJust returnType)
-		lift $ put (env, penv)	-- Restore the previous state.
+		mem <- lift $ get
+		validateStmt s False (fromJust returnType)
+		lift $ put mem
 		return TypeChecking.Ok
-validateFunctionDeclaration _ _ _ = throwError "Malformed function declaration. "
 
 
-validateExternalDeclaration :: ExternalDeclaration -> Eval TypeCheckResult
-validateExternalDeclaration (Global (Declarators declarationSpecifiers initDeclarators)) = return TypeChecking.Ok
-validateExternalDeclaration (Func declarationSpecifiers declarator compoundStatement) = 
-	validateFunctionDeclaration declarationSpecifiers declarator compoundStatement
-validateExternalDeclaration _ = throwError "This type of external declaration is not supported yet."
+validateFunctionDeclaration :: [DeclarationSpecifier] -> Declarator -> CompoundStatement -> Bool -> Eval TypeCheckResult
+validateFunctionDeclaration declarationSpecifiers (NoPointer (ParamFuncDecl (Name ident) parameterDeclarations)) 
+		compoundStatement statements = do
+	(env, penv) <- lift $ get
+	-- validate declarations of param variables
+	validateParamDecls parameterDeclarations
+	(tempEnv, _) <- lift $ get
+	let returnType = getType declarationSpecifiers
+	paramTypes <- parametersToTypesList parameterDeclarations
+	let penvNew = insert ident (fromJust returnType, paramTypes) penv
+	if statements then do
+		lift $ put (tempEnv, penvNew)
+		validateFunctionStmt returnType (CompS compoundStatement)
+		lift $ put (env, penvNew)
+		return TypeChecking.Ok
+	else do
+		lift $ put (env, penvNew)
+		return TypeChecking.Ok
+validateFunctionDeclaration declarationSpecifiers (NoPointer (EmptyFuncDecl (Name ident))) compoundStatement 
+		statements = do
+	(env, penv) <- lift $ get
+	let returnType = getType declarationSpecifiers
+	let penvNew = insert ident (fromJust returnType, []) penv
+	lift $ put (env, penvNew)	-- Have to put function in penv.
+	if statements then
+		validateFunctionStmt returnType (CompS compoundStatement)
+	else
+		return TypeChecking.Ok
+
+
+validateExternalDeclaration :: ExternalDeclaration -> Bool -> Eval TypeCheckResult
+validateExternalDeclaration (Global (Declarators declarationSpecifiers initDeclarators)) _ = return TypeChecking.Ok
+validateExternalDeclaration (Func declarationSpecifiers declarator compoundStatement) statements = 
+	validateFunctionDeclaration declarationSpecifiers declarator compoundStatement statements
+validateExternalDeclaration _ _ = throwError "This type of external declaration is not supported yet."
 
 
 validateProg :: Prog -> Eval TypeCheckResult
 validateProg (Program externalDeclarations) = do
-	mapM_ (validateExternalDeclaration) externalDeclarations
+	mapM_ (\decl -> validateExternalDeclaration decl False) externalDeclarations
+	mapM_ (\decl -> validateExternalDeclaration decl True) externalDeclarations
 	return TypeChecking.Ok
 
 
