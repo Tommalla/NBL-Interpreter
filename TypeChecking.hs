@@ -52,16 +52,20 @@ extractFuncSign ident = do
 		Nothing -> throwError ((shows ident) " - function not declared.")
 
 
-getVarOrConstType :: Exp -> Eval (Maybe DataType)
+getVarOrConstType :: Exp -> Eval (DataType)
 getVarOrConstType (ExpConstant constant) = return (case constant of
-	ExpChar _ -> Just (Raw TypeChar)
- 	ExpDouble _ -> Just (Raw TypeDouble)
- 	ExpInt _ -> Just (Raw TypeInt)
- 	ExpBool  _ -> Just (Raw TypeBool))
+	ExpChar _ -> (Raw TypeChar)
+ 	ExpDouble _ -> (Raw TypeDouble)
+ 	ExpInt _ -> (Raw TypeInt)
+ 	ExpBool  _ -> (Raw TypeBool))
 getVarOrConstType (ExpVar ident) = do
 	(env, _) <- lift $ get
-	return (extractVarType ident env)
-getVarOrConstType _ = return Nothing
+	let res = extractVarType ident env
+	if (isNothing res) then
+		throwError "Variable not declared."
+	else
+		return (fromJust res)
+getVarOrConstType _ = throwError "Unknown DataType for var or constant."
 
 
 toConstant :: DataType -> Eval Exp
@@ -72,8 +76,8 @@ toConstant (Raw TypeBool) = return (ExpConstant (ExpBool ValTrue))
 toConstant t = throwError ((shows t) " is inconvertible to ExpConstant.")
 
 
-getCommonType :: Maybe DataType -> Maybe DataType -> Eval (Maybe DataType)
-getCommonType (Just t1) (Just t2) = do
+getCommonType :: DataType -> DataType -> Eval (Maybe DataType)
+getCommonType t1 t2 = do
 	if t1 == t2 then 
 		return (Just t1)
 	else 
@@ -240,6 +244,21 @@ validateExp (ExpFunc expr) = do
 				return result
 			else 
 				throwError "Not enought arguments passed to the function."
+		_ -> throwError "Function execution: Does not type."
+validateExp (ExpFuncArg expr paramExprs) = do
+	res <- validateExp expr
+	paramTypesAppl <- mapM (\e -> do 
+		expFinal <- validateExp e
+		getVarOrConstType expFinal) paramExprs
+	case res of
+		ExpVar ident -> do
+			(_, penv) <- lift $ get
+			(retType, paramTypes) <- extractFuncSign ident
+			if (paramTypes == paramTypesAppl) then do
+				result <- toConstant retType
+				return result
+			else 
+				throwError "Wrong types/quantity of arguments passed to the function"
 		_ -> throwError "Function execution: Does not type."
 validateExp x = throwError ((shows x) "This type of expression is not supported yet.")
 

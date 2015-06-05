@@ -168,6 +168,7 @@ constantToDataType (ExpChar c) = TChar c
 constantToDataType (ExpDouble d) = TDouble d
 constantToDataType (ExpInt i) = TInt i
 constantToDataType (ExpBool b) = TBool (b == ValTrue)
+constantToDataType (ExpString s) = TString s
 
 
 dataTypeToConstant :: DataType -> Constant
@@ -175,6 +176,7 @@ dataTypeToConstant (TChar c) = ExpChar c
 dataTypeToConstant (TDouble d) = ExpDouble d
 dataTypeToConstant (TInt i) = ExpInt i
 dataTypeToConstant (TBool b) = ExpBool (if b then ValTrue else ValFalse)
+dataTypeToConstant (TString s) = ExpString s
 dataTypeToConstant _ = undefined
 
 
@@ -341,8 +343,43 @@ executeExp (ExpFunc expr) = do
 			(_, _, newStore) <- lift.lift $ get
 			lift.lift $ put (env, penv, newStore)
 			return res
-		_ -> lift $ throwError "The function was not declared." 
+		_ -> lift $ throwError "The function was not declared."
+executeExp (ExpFuncArg expr paramExprs) = do
+	res <- executeExp expr
+	case res of
+		ExpVar ident -> do
+			(paramIdents, compoundStatement, funcEnv) <- getFunc ident
+			(env, penv, store) <- lift.lift $ get
+			lift.lift $ put (funcEnv, penv, store)
+			mapM_ (\(e, i) -> bindParam i e env) (zip paramExprs paramIdents)
+			let breakC = getBadBreakCont
+			res <- callCC $ \retC -> do
+				executeStmt (CompS compoundStatement) retC breakC breakC
+				retC (ExpConstant (ExpInt 0))
+			(_, _, newStore) <- lift.lift $ get
+			lift.lift $ put (env, penv, newStore)
+			return res
+		_ -> lift $ throwError "The function was not declared."
+
 executeExp _ = lift $ throwError "This type of expression is not supported yet."
+
+
+bindParam :: Ident -> Exp -> Env -> ContExec ParseResult
+bindParam ident expr origEnv = do
+	(env, penv, store) <- lift.lift $ get
+	lift.lift $ put (origEnv, penv, store)
+	res <- executeExp expr
+	(_, penv, store) <- lift.lift $ get
+	lift.lift $ put (origEnv, penv, store)
+	let loc = newloc store
+	case res of 
+		ExpVar varIdent -> do
+			lift.lift $ put (insert ident loc env, penv, insert loc (store ! (origEnv ! varIdent)) store)
+			return ExecOk
+		ExpConstant constant -> do
+			lift.lift $ put (insert ident loc env, penv, insert loc (constantToDataType constant) store)
+			return ExecOk
+		_ -> lift $ throwError "Unassignable parameter passed to the function."
 
 
 evaluateCondition :: Exp -> ContExec Bool
@@ -440,6 +477,7 @@ executeStmt (PrintS (Print expr)) _ _ _ = do
 	val <- getDirectValue res
 	liftIO $ (case val of
 		TInt i -> print i
+		TString s -> print s
 		_ -> print "<Unable to print: printing for this type not defined>")
 	return ExecOk
 executeStmt _ _ _ _ = lift $ throwError "This type of statement is not supported yet."
