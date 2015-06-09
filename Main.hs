@@ -444,9 +444,7 @@ executeLoopStmt (LoopForTwo decl ctlExpStmt s) retCont breakCont contCont =
 
 
 executeStmt :: Stmt -> ContExp -> ContS -> ContS -> ContExec ParseResult
-executeStmt (DeclS (Declarators specifiers initDeclarators)) _ _ _ = do
-	mapM_ (\initDeclarator -> allocateDeclarator initDeclarator specifiers) initDeclarators
-	return ExecOk
+executeStmt (DeclS decl) _ _ _ = executeDecl decl
 executeStmt (ExprS (ExtraSemicolon)) _ _ _ = return ExecOk
 executeStmt (ExprS (HangingExp exp)) _ _ _ = do
 	mem <- lift.lift $ get
@@ -522,12 +520,16 @@ executeFunctionDeclaration (NoPointer (EmptyFuncDecl (Name ident))) compoundStat
 executeFunctionDeclaration declarator _ = lift $ throwError "Malformed function declaration. "
 
 
-executeExternalDeclaration :: ExternalDeclaration -> ContExec ParseResult
-executeExternalDeclaration (Func declarationSpecifiers declarator compoundStatement) =
+executeDecl :: Decl -> ContExec ParseResult
+executeDecl (Func declarationSpecifiers declarator compoundStatement) =
 	executeFunctionDeclaration declarator compoundStatement
-executeExternalDeclaration (Global (Declarators specifiers initDeclarators)) = do
+executeDecl (Declarators specifiers initDeclarators) = do
 	mapM_ (\initDeclarator -> allocateDeclarator initDeclarator specifiers) initDeclarators
-	return ExecOk 
+	return ExecOk
+
+
+executeExternalDeclaration :: ExternalDeclaration -> ContExec ParseResult
+executeExternalDeclaration (Global decl) = executeDecl decl
 
 
 executeProg :: Prog -> ContExec ParseResult

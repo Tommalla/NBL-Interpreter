@@ -10,11 +10,12 @@ Program.  Prog ::= [ExternalDeclaration] ;
 (:[]).    [ExternalDeclaration] ::= ExternalDeclaration;
 (:).      [ExternalDeclaration] ::= ExternalDeclaration [ExternalDeclaration];
 
-Func.  ExternalDeclaration ::= [DeclarationSpecifier] Declarator CompoundStatement;
 Global. ExternalDeclaration ::= Decl;
 GlobalExp. ExternalDeclaration ::= ExpressionStatement;
 
-Declarators.   Decl ::= [DeclarationSpecifier] [InitDeclarator] ";" ;
+Func.			Decl ::= [DeclarationSpecifier] Declarator CompoundStatement;
+Declarators.	Decl ::= [DeclarationSpecifier] [InitDeclarator] ";" ;
+
 
 (:[]).    [Decl] ::= Decl;
 (:).      [Decl] ::= Decl [Decl];  
@@ -147,6 +148,7 @@ ExpDouble.      Constant ::= Double;
 ExpInt.          Constant ::= Integer;
 ExpBool.		Constant ::= BoolConstant;
 ExpString.     Constant ::= String;
+ExpVoid.		Constant ::= "Void";
 
 internal ExpDouble. Constant ::= Double;
 

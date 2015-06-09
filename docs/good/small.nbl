@@ -1,0 +1,92 @@
+Int foo(Int x) {
+	print("foo");
+	print(x);
+	if (x < 5) {
+		return foo(x + 1);
+	}
+
+	Void bar() {
+		x++;
+		print("bar");
+	}
+
+	bar();
+
+	return x + 1;
+}
+
+Int main() {
+	Int x, y;
+	x = 5 + 1;
+	y = x * 2 + 1 + (2 * 3);
+	Int z;
+	z = (y - x * 3 + 1) / 2;
+	z = (z * 5) % 4;
+	z /= 2;
+	y += 3;
+	Bool bul, duda, prezydent, zmiany;
+	Int poparcieBula;
+	poparcieBula = 47;
+	bul = false;
+	duda = 53 > 47;
+	prezydent = bul || duda;
+	zmiany = bul && duda;
+
+	if (!zmiany) {
+		poparcieBula += poparcieBula / 2;
+	}
+
+	while (poparcieBula < 100) {
+		poparcieBula += 20;
+	}
+
+	do {
+		poparcieBula -= 42;
+	} while (poparcieBula >= 0);
+
+	for (Int i = 0; i < 5; ++i) {
+		poparcieBula += i * 1;
+	}
+
+	for (Int i = 0; i < 5;) {
+		poparcieBula--;
+		i += 3;
+	}
+
+	poparcieBula += -1;
+
+	for (Int i = 0; i < 5; ++i) {
+		print(i);
+		poparcieBula += 10;
+		break;
+	}
+
+	Int i = -1;
+
+	while (i < 5) {
+		++i;
+		poparcieBula -= 10;
+		print(i);
+		if (i >= 0) {
+			continue;
+		}
+
+		poparcieBula += 10;
+	}
+
+	String str = "bar";
+	print(poparcieBula);
+
+	for (Int i = 0; i < 5; i++) {
+		poparcieBula += 10;
+		if (i >= 0) {
+			continue;
+		}
+
+		poparcieBula -= 10;
+	}
+
+	z = foo(foo(z));
+
+	return z;
+}

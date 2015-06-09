@@ -73,6 +73,7 @@ toConstant (Raw TypeChar) = return (ExpConstant (ExpChar '0'))
 toConstant (Raw TypeDouble) = return (ExpConstant (ExpDouble 0))
 toConstant (Raw TypeInt) = return (ExpConstant (ExpInt 0))
 toConstant (Raw TypeBool) = return (ExpConstant (ExpBool ValTrue))
+toConstant (Raw TypeVoid) = return (ExpConstant (ExpVoid))
 toConstant t = throwError ((shows t) " is inconvertible to ExpConstant.")
 
 
@@ -291,9 +292,7 @@ validateLoopStmt (LoopForTwo decl ctlExpStmt s) retType =
 
 
 validateStmt :: Stmt -> Bool -> DataType -> Eval TypeCheckResult
-validateStmt (DeclS (Declarators specifiers initDeclarators)) _ _ = do
-	mapM_ (\initDeclarator -> validateDeclarator initDeclarator specifiers) initDeclarators
-	return TypeChecking.Ok
+validateStmt (DeclS decl) _ _ = validateDecl decl True
 validateStmt (ExprS (ExtraSemicolon)) _ _ = return TypeChecking.Ok
 validateStmt (ExprS (HangingExp exp)) _ _ = do
 	validateExp exp
@@ -395,10 +394,16 @@ validateFunctionDeclaration declarationSpecifiers (NoPointer (EmptyFuncDecl (Nam
 		return TypeChecking.Ok
 
 
-validateExternalDeclaration :: ExternalDeclaration -> Bool -> Eval TypeCheckResult
-validateExternalDeclaration (Global (Declarators declarationSpecifiers initDeclarators)) _ = return TypeChecking.Ok
-validateExternalDeclaration (Func declarationSpecifiers declarator compoundStatement) statements = 
+validateDecl :: Decl -> Bool -> Eval TypeCheckResult
+validateDecl (Func declarationSpecifiers declarator compoundStatement) statements = 
 	validateFunctionDeclaration declarationSpecifiers declarator compoundStatement statements
+validateDecl (Declarators specifiers initDeclarators) _ = do
+	mapM_ (\initDeclarator -> validateDeclarator initDeclarator specifiers) initDeclarators
+	return TypeChecking.Ok
+
+
+validateExternalDeclaration :: ExternalDeclaration -> Bool -> Eval TypeCheckResult
+validateExternalDeclaration (Global decl) statements = validateDecl decl statements
 validateExternalDeclaration _ _ = throwError "This type of external declaration is not supported yet."
 
 
