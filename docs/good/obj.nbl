@@ -1,0 +1,14 @@
+// An objective code example.
+
+class Foo {
+public:
+	Int x;
+};
+
+
+Void main() {
+	Foo foo;
+
+	foo.x = 2;
+	print(foo.x + 1);
+}

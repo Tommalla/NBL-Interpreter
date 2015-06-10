@@ -27,16 +27,13 @@ type Eval a = ExceptT String (State (Env, PEnv)) a
 
 
 -- TODO need to incorporate pointers into this.
-getType :: [DeclarationSpecifier] -> Maybe DataType
-getType (h:t) = if (not (Prelude.null t)) then
-	case h of
-		SpecProp (Const) -> do
-			innerType <- getType t
-			return (TConst innerType)
-	 	_ -> Nothing
-	else case h of
-		SpecProp (Const) -> Nothing
-		Type anything -> Just (Raw anything)
+getType :: DeclarationSpecifier -> Maybe DataType
+getType (Type specifier) = Just (Raw specifier)
+getType (QualType qual specifier) = case qual of
+	Const -> do
+		innerType <- getType (Type specifier)
+		return (TConst innerType)
+	_ -> Nothing
 
 
 extractVarType :: Ident -> Env -> Maybe DataType
@@ -87,10 +84,10 @@ getCommonType t1 t2 = do
 getCommonType _ _ = return Nothing
 
 
-validateDirect :: DirectDeclarator -> [DeclarationSpecifier] -> Eval TypeCheckResult
-validateDirect (Name ident) specifiers = do
+validateDirect :: DirectDeclarator -> DeclarationSpecifier -> Eval TypeCheckResult
+validateDirect (Name ident) specifier = do
 	(env, penv) <- lift $ get
-	let declType = getType specifiers
+	let declType = getType specifier
 	if (isNothing declType) then
 		throwError "Incorrect type!"
 	else do
@@ -99,13 +96,13 @@ validateDirect (Name ident) specifiers = do
 validateDirect _ _ = throwError "This type of allocation is not supported yet."
 
 
-validateDeclarator :: InitDeclarator -> [DeclarationSpecifier] -> Eval TypeCheckResult
-validateDeclarator (PureDecl declarator) specifiers = do
+validateDeclarator :: InitDeclarator -> DeclarationSpecifier -> Eval TypeCheckResult
+validateDeclarator (PureDecl declarator) specifier = do
 	case declarator of
-		NoPointer directDeclarator -> validateDirect directDeclarator specifiers
+		NoPointer directDeclarator -> validateDirect directDeclarator specifier
 		_ -> throwError "Not a NoPointer"
-validateDeclarator (InitDecl declarator (InitExpr expr)) specifiers = do
-	validateDeclarator (PureDecl declarator) specifiers
+validateDeclarator (InitDecl declarator (InitExpr expr)) specifier = do
+	validateDeclarator (PureDecl declarator) specifier
 	validateExp expr
 	return TypeChecking.Ok
 validateDeclarator _ _ = throwError "validateDeclarator not defined for this type of declaration."
@@ -325,9 +322,9 @@ validateParamDecls :: ParameterDeclarations -> Eval TypeCheckResult
 validateParamDecls (ParamDecl parameterDeclaration) = do 
 	case parameterDeclaration of
 		OnlyType _ -> return TypeChecking.Ok -- FIXME?
-		TypeAndParam declarationSpecifiers declarator -> do
+		TypeAndParam declarationSpecifier declarator -> do
 			case declarator of
-				NoPointer directDeclarator -> validateDirect directDeclarator declarationSpecifiers
+				NoPointer directDeclarator -> validateDirect directDeclarator declarationSpecifier
 				_ -> throwError "Pointers not supported yet."
 validateParamDecls (MoreParamDecl paramDecls paramDecl) = do
 	validateParamDecls (paramDecls)
@@ -364,14 +361,14 @@ validateFunctionStmt returnType s = do
 		return TypeChecking.Ok
 
 
-validateFunctionDeclaration :: [DeclarationSpecifier] -> Declarator -> CompoundStatement -> Bool -> Eval TypeCheckResult
-validateFunctionDeclaration declarationSpecifiers (NoPointer (ParamFuncDecl (Name ident) parameterDeclarations)) 
+validateFunctionDeclaration :: DeclarationSpecifier -> Declarator -> CompoundStatement -> Bool -> Eval TypeCheckResult
+validateFunctionDeclaration declarationSpecifier (NoPointer (ParamFuncDecl (Name ident) parameterDeclarations)) 
 		compoundStatement statements = do
 	(env, penv) <- lift $ get
 	-- validate declarations of param variables
 	validateParamDecls parameterDeclarations
 	(tempEnv, _) <- lift $ get
-	let returnType = getType declarationSpecifiers
+	let returnType = getType declarationSpecifier
 	paramTypes <- parametersToTypesList parameterDeclarations
 	let penvNew = insert ident (fromJust returnType, paramTypes) penv
 	if statements then do
@@ -382,10 +379,10 @@ validateFunctionDeclaration declarationSpecifiers (NoPointer (ParamFuncDecl (Nam
 	else do
 		lift $ put (env, penvNew)
 		return TypeChecking.Ok
-validateFunctionDeclaration declarationSpecifiers (NoPointer (EmptyFuncDecl (Name ident))) compoundStatement 
+validateFunctionDeclaration declarationSpecifier (NoPointer (EmptyFuncDecl (Name ident))) compoundStatement 
 		statements = do
 	(env, penv) <- lift $ get
-	let returnType = getType declarationSpecifiers
+	let returnType = getType declarationSpecifier
 	let penvNew = insert ident (fromJust returnType, []) penv
 	lift $ put (env, penvNew)	-- Have to put function in penv.
 	if statements then
@@ -395,8 +392,8 @@ validateFunctionDeclaration declarationSpecifiers (NoPointer (EmptyFuncDecl (Nam
 
 
 validateDecl :: Decl -> Bool -> Eval TypeCheckResult
-validateDecl (Func declarationSpecifiers declarator compoundStatement) statements = 
-	validateFunctionDeclaration declarationSpecifiers declarator compoundStatement statements
+validateDecl (Func declarationSpecifier declarator compoundStatement) statements = 
+	validateFunctionDeclaration declarationSpecifier declarator compoundStatement statements
 validateDecl (Declarators specifiers initDeclarators) _ = do
 	mapM_ (\initDeclarator -> validateDeclarator initDeclarator specifiers) initDeclarators
 	return TypeChecking.Ok

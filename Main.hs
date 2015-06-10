@@ -188,36 +188,35 @@ getDirectValue _ = lift $ throwError "Cannot extract value from an expression."
 
 
 -- Returns an initialized object of DataType based on the declaration specifiers.
-createDefaultValue :: [DeclarationSpecifier] -> DataType
-createDefaultValue (h:t) = if (Prelude.not (Prelude.null t)) then
-	case h of
-		(SpecProp (Const)) -> (TConst (createDefaultValue t)) 
-	 	_ -> undefined
-	else case h of
-		Type (TypeVoid) -> TVoid
-		Type (TypeChar) -> (TChar '\0')
-		Type (TypeInt) -> (TInt 0)
-		Type (TypeDouble) -> (TDouble 0.0)
-		Type (TypeBool) -> (TBool False)
-		Type (TypeString) -> (TString "")
+createDefaultValue :: DeclarationSpecifier -> DataType
+createDefaultValue (QualType qual specifier) = case qual of
+	Const -> (TConst (createDefaultValue (Type specifier)))
+	_ -> undefined
+createDefaultValue (Type specifier) = case specifier of
+	TypeVoid -> TVoid
+	TypeChar -> (TChar '\0')
+	TypeInt -> (TInt 0)
+	TypeDouble -> (TDouble 0.0)
+	TypeBool -> (TBool False)
+	TypeString -> (TString "")
 
 
-allocateDirect :: DirectDeclarator -> [DeclarationSpecifier] -> ContExec ParseResult
-allocateDirect (Name ident) specifiers = do
+allocateDirect :: DirectDeclarator -> DeclarationSpecifier -> ContExec ParseResult
+allocateDirect (Name ident) specifier = do
 	(env, penv, state) <- lift.lift $ get
 	let loc = newloc state
-	lift.lift $ put (insert ident loc env, penv, insert loc (createDefaultValue specifiers) state)
+	lift.lift $ put (insert ident loc env, penv, insert loc (createDefaultValue specifier) state)
 	return ExecOk
 allocateDirect _ _ = lift $ throwError "This type of allocation is not supported yet."
 
 
-allocateDeclarator :: InitDeclarator -> [DeclarationSpecifier] -> ContExec ParseResult
-allocateDeclarator (PureDecl declarator) specifiers = do
+allocateDeclarator :: InitDeclarator -> DeclarationSpecifier -> ContExec ParseResult
+allocateDeclarator (PureDecl declarator) specifier = do
 	case declarator of
-		NoPointer directDeclarator -> allocateDirect directDeclarator specifiers
+		NoPointer directDeclarator -> allocateDirect directDeclarator specifier
 		_ -> lift $ throwError "Not a NoPointer"
-allocateDeclarator (InitDecl declarator (InitExpr expr)) specifiers = do
-	allocateDeclarator (PureDecl declarator) specifiers
+allocateDeclarator (InitDecl declarator (InitExpr expr)) specifier = do
+	allocateDeclarator (PureDecl declarator) specifier
 	case declarator of
 		NoPointer (Name ident) -> executeExp (ExpAssign (ExpVar ident) Assign expr)
 		_ -> lift $ throwError "Not a NoPointer"

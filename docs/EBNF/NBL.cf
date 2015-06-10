@@ -13,18 +13,17 @@ Program.  Prog ::= [ExternalDeclaration] ;
 Global. ExternalDeclaration ::= Decl;
 GlobalExp. ExternalDeclaration ::= ExpressionStatement;
 
-Func.			Decl ::= [DeclarationSpecifier] Declarator CompoundStatement;
-Declarators.	Decl ::= [DeclarationSpecifier] [InitDeclarator] ";" ;
+Func.			Decl ::= DeclarationSpecifier Declarator CompoundStatement;
+Declarators.	Decl ::= DeclarationSpecifier [InitDeclarator] ";" ;
+Class.      	Decl ::= "class" Ident "{" [ClassDecl] "}" ";";
 
 
 (:[]).    [Decl] ::= Decl;
 (:).      [Decl] ::= Decl [Decl];  
 
-(:[]).  [DeclarationSpecifier] ::= DeclarationSpecifier;
-(:).    [DeclarationSpecifier] ::= DeclarationSpecifier [DeclarationSpecifier];
 
 Type.     DeclarationSpecifier ::= TypeSpecifier;
-SpecProp. DeclarationSpecifier ::= TypeQualifier;
+QualType. DeclarationSpecifier ::= TypeQualifier TypeSpecifier;
 
 (:[]).   [InitDeclarator] ::= InitDeclarator;
 (:).     [InitDeclarator] ::= InitDeclarator "," [InitDeclarator];
@@ -38,12 +37,18 @@ TypeInt.         TypeSpecifier ::= "Int";
 TypeDouble.      TypeSpecifier ::= "Double";
 TypeBool.		 TypeSpecifier ::= "Bool";
 TypeString.	  	  TypeSpecifier ::= "String";
+TypeClass.		TypeSpecifier ::= Ident;
 -- TODO
 -- TypeArray.	      TypeSpecifier ::= "Array" TemplateParams;
 -- TypeTuple.       TypeSpecifier ::= "Tuple" TemplateParams;
--- TypeClass.       TypeSpecifier ::= ClassSpecifier;
 
 Const.		TypeQualifier ::= "const" ;
+
+(:[]).	[ClassDecl] ::= ClassDecl;
+(:).	[ClassDecl] ::= ClassDecl [ClassDecl];
+
+PublicBlock.	ClassDecl ::= "public:" [Decl];
+ProtectedBlock.	ClassDecl ::= "protected:" [Decl];
 
 (:[]).  [SpecQual] ::= SpecQual ;
 (:).    [SpecQual] ::= SpecQual [SpecQual];
@@ -68,8 +73,8 @@ Point.          Pointer ::= "*" ;
 ParamDecl.     ParameterDeclarations ::= ParameterDeclaration;                   
 MoreParamDecl. ParameterDeclarations ::= ParameterDeclarations "," ParameterDeclaration;
 
-OnlyType.      ParameterDeclaration ::= [DeclarationSpecifier];
-TypeAndParam.  ParameterDeclaration ::= [DeclarationSpecifier] Declarator;
+OnlyType.      ParameterDeclaration ::= DeclarationSpecifier;
+TypeAndParam.  ParameterDeclaration ::= DeclarationSpecifier Declarator;
 
 (:[]).   [Ident] ::= Ident;
 (:).     [Ident] ::= Ident "," [Ident];
@@ -142,6 +147,7 @@ ExpPostInc.    Exp14 ::= Exp14 "++";
 ExpPostDec.    Exp14 ::= Exp14 "--";
 ExpVar.        Exp15 ::= Ident;
 ExpConstant.      Exp15 ::= Constant;
+ExpClassVar.	Exp15 ::= Ident"."Ident;
 
 ExpChar.         Constant ::= Char;
 ExpDouble.      Constant ::= Double;
@@ -150,7 +156,7 @@ ExpBool.		Constant ::= BoolConstant;
 ExpString.     Constant ::= String;
 ExpVoid.		Constant ::= "Void";
 
-internal ExpDouble. Constant ::= Double;
+-- internal ExpDouble. Constant ::= Double;
 
 Especial. Constant_expression ::= Exp3;
 
