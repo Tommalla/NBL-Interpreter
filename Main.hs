@@ -61,21 +61,24 @@ data Operator =
 	| Ge
 
 
--- TODO move all those to monads?
 add :: DataType -> DataType -> DataType
 add (TInt a) (TInt b) = TInt (a + b)
+add (TDouble a) (TDouble b) = TDouble (a + b)
 
 
 sub :: DataType -> DataType -> DataType
 sub (TInt a) (TInt b) = TInt (a - b)
+sub (TDouble a) (TDouble b) = TDouble (a - b)
 
 
 mul :: DataType -> DataType -> DataType
 mul (TInt a) (TInt b) = TInt (a * b)
+mul (TDouble a) (TDouble b) = TDouble (a * b)
 
 
 div :: DataType -> DataType -> DataType
 div (TInt a) (TInt b) = TInt (a `Prelude.div` b)
+div (TDouble a) (TDouble b) = TDouble (a / b)
 
 
 mod :: DataType -> DataType -> DataType

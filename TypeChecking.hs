@@ -27,6 +27,21 @@ data ClassMember = CFunc PSign | CVar DataType
 type ClassSign = (Map Ident ClassMember, Map Ident ClassMember)
 type CEnv = Map Ident ClassSign
 type Eval a = ExceptT String (State (Env, PEnv, CEnv)) a
+data Operator = 
+	  Plus 
+	| Minus 
+	| Times 
+	| Div
+	| Mod 
+	| And 
+	| Or 
+	| Eq 
+	| Neq 
+	| Lt 
+	| Gt 
+	| Le 
+	| Ge
+	deriving (Show)
 
 
 -- For convenience, we remember the class data members in the standard env with hashed names for the members.
@@ -41,7 +56,7 @@ getType (QualType qual specifier) = case qual of
 	Const -> do
 		innerType <- getType (Type specifier)
 		return (TConst innerType)
-	_ -> throwError "Incorrect type."
+	_ -> throwError ("Incorrect type:" ++ (show (QualType qual specifier)))
 
 
 stripConst :: DataType -> DataType
@@ -85,7 +100,7 @@ getVarOrConstType (ExpVar ident) = do
 	(env, _, _) <- lift $ get
 	res <- extractVarType ident
 	return res
-getVarOrConstType _ = throwError "Unknown DataType for var or constant."
+getVarOrConstType x = throwError ("Unknown DataType for var or constant: " ++ (show x))
 
 
 toConstant :: DataType -> Eval Exp
@@ -139,8 +154,33 @@ validateDeclarator (InitDecl declarator (InitExpr expr)) specifier = do
 validateDeclarator _ _ = throwError "validateDeclarator not defined for this type of declaration."
 
 
-validateBinaryOp :: Exp -> Exp -> (DataType -> DataType) -> Eval Exp
-validateBinaryOp exp1 exp2 toResType = do
+canPerform :: Operator -> DataType -> Bool
+canPerform TypeChecking.Plus (Raw TypeInt) = True
+canPerform TypeChecking.Plus (Raw TypeDouble) = True 
+canPerform TypeChecking.Minus (Raw TypeInt) = True
+canPerform TypeChecking.Minus (Raw TypeDouble) = True 
+canPerform TypeChecking.Times (Raw TypeInt) = True
+canPerform TypeChecking.Times (Raw TypeDouble) = True
+canPerform TypeChecking.Div (Raw TypeInt) = True
+canPerform TypeChecking.Div (Raw TypeDouble) = True
+canPerform TypeChecking.Mod (Raw TypeInt) = True
+canPerform TypeChecking.And (Raw TypeBool) = True
+canPerform TypeChecking.Or (Raw TypeBool) = True
+canPerform TypeChecking.Eq _ = True
+canPerform TypeChecking.Neq _ = True
+canPerform TypeChecking.Lt (Raw TypeInt) = True
+canPerform TypeChecking.Lt (Raw TypeDouble) = True
+canPerform TypeChecking.Le (Raw TypeInt) = True
+canPerform TypeChecking.Le (Raw TypeDouble) = True
+canPerform TypeChecking.Gt (Raw TypeInt) = True
+canPerform TypeChecking.Gt (Raw TypeDouble) = True
+canPerform TypeChecking.Ge (Raw TypeInt) = True
+canPerform TypeChecking.Ge (Raw TypeDouble) = True 
+canPerform _ _ = False
+
+
+validateBinaryOp :: Exp -> Exp -> Operator -> (DataType -> DataType) -> Eval Exp
+validateBinaryOp exp1 exp2 op toResType = do
 	res1 <- validateExp exp1
 	res2 <- validateExp exp2
 	t1 <- getVarOrConstType res1
@@ -149,7 +189,10 @@ validateBinaryOp exp1 exp2 toResType = do
 	let t2Underlying = stripConst t2
 	tRes <- getCommonType t1Underlying t2Underlying
 	case tRes of
-		Just res -> toConstant (toResType res)
+		Just res -> if canPerform op res then
+				toConstant (toResType res)
+			else
+				throwError ((shows res) (" - cannot perform op: " ++ (show op) ++ "on this"))
 		Nothing -> throwError ((shows (t1Underlying, t2Underlying))"Expressions on different types are not supported.")
 
 
@@ -237,20 +280,20 @@ validateExp (ExpAssign exp1 assignmentOperator exp2) = do
 	-- TODO handle all sorts of different assignment operators
 validateExp (ExpVar ident) = return (ExpVar ident)
 validateExp (ExpConstant constant) = return (ExpConstant constant)
-validateExp (ExpPlus exp1 exp2) = validateBinaryOp exp1 exp2 (id)
-validateExp (ExpMinus exp1 exp2) = validateBinaryOp exp1 exp2 (id)
-validateExp (ExpTimes exp1 exp2) = validateBinaryOp exp1 exp2 (id)
-validateExp (ExpDiv exp1 exp2) = validateBinaryOp exp1 exp2 (id)
-validateExp (ExpMod exp1 exp2) = validateBinaryOp exp1 exp2 (id)
-validateExp (ExpOr exp1 exp2) = validateBinaryOp exp1 exp2 (id)
-validateExp (ExpAnd exp1 exp2) = validateBinaryOp exp1 exp2 (id)
+validateExp (ExpPlus exp1 exp2) = validateBinaryOp exp1 exp2 TypeChecking.Plus (id)
+validateExp (ExpMinus exp1 exp2) = validateBinaryOp exp1 exp2 TypeChecking.Minus (id)
+validateExp (ExpTimes exp1 exp2) = validateBinaryOp exp1 exp2 TypeChecking.Times (id)
+validateExp (ExpDiv exp1 exp2) = validateBinaryOp exp1 exp2 TypeChecking.Div (id)
+validateExp (ExpMod exp1 exp2) = validateBinaryOp exp1 exp2 TypeChecking.Mod (id)
+validateExp (ExpOr exp1 exp2) = validateBinaryOp exp1 exp2 TypeChecking.Or (id)
+validateExp (ExpAnd exp1 exp2) = validateBinaryOp exp1 exp2 TypeChecking.And (id)
 -- All below need to return bool.
-validateExp (ExpEq exp1 exp2) = validateBinaryOp exp1 exp2 (\_ -> Raw TypeBool)
-validateExp (ExpNeq exp1 exp2) = validateBinaryOp exp1 exp2 (\_ -> Raw TypeBool)
-validateExp (ExpLt exp1 exp2) = validateBinaryOp exp1 exp2 (\_ -> Raw TypeBool)
-validateExp (ExpGt exp1 exp2) = validateBinaryOp exp1 exp2 (\_ -> Raw TypeBool)
-validateExp (ExpLe exp1 exp2) = validateBinaryOp exp1 exp2 (\_ -> Raw TypeBool)
-validateExp (ExpGe exp1 exp2) = validateBinaryOp exp1 exp2 (\_ -> Raw TypeBool)
+validateExp (ExpEq exp1 exp2) = validateBinaryOp exp1 exp2 TypeChecking.Eq (\_ -> Raw TypeBool)
+validateExp (ExpNeq exp1 exp2) = validateBinaryOp exp1 exp2 TypeChecking.Neq (\_ -> Raw TypeBool)
+validateExp (ExpLt exp1 exp2) = validateBinaryOp exp1 exp2 TypeChecking.Lt (\_ -> Raw TypeBool)
+validateExp (ExpGt exp1 exp2) = validateBinaryOp exp1 exp2 TypeChecking.Gt (\_ -> Raw TypeBool)
+validateExp (ExpLe exp1 exp2) = validateBinaryOp exp1 exp2 TypeChecking.Le (\_ -> Raw TypeBool)
+validateExp (ExpGe exp1 exp2) = validateBinaryOp exp1 exp2 TypeChecking.Ge (\_ -> Raw TypeBool)
 -- TODO go deeper into types, forbid operations on types where it makes no sense.
 -- Pre/Post Inc/Dec
 validateExp (ExpPreInc expr) = do
@@ -267,15 +310,15 @@ validateExp (ExpPreOp op expr) = do
 	numeric <- isNumeric res
 	boolean <- isBoolean res
 	case op of
-		Plus -> if numeric then 
+		AbsNBL.Plus -> if numeric then 
 				return res
 			else 
 				throwError "Not a numeric type."
-		Negative -> if numeric then 
+		AbsNBL.Negative -> if numeric then 
 				return res
 			else 
 				throwError "Not a numeric type."
-		Negation -> if boolean then
+		AbsNBL.Negation -> if boolean then
 				return res
 			else
 				throwError "Not a boolean type."
@@ -291,7 +334,7 @@ validateExp (ExpFunc expr) = do
 				return result
 			else 
 				throwError "Not enought arguments passed to the function."
-		_ -> throwError "Function execution: Does not type."
+		_ -> throwError ("Function execution: Does not type." ++ (show res))
 validateExp (ExpFuncArg expr paramExprs) = do
 	res <- validateExp expr
 	paramTypesAppl <- mapM (\e -> do 
