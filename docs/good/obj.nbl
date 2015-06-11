@@ -3,6 +3,17 @@
 class Foo {
 public:
 	Int x;
+	String msg = "Foo";	// Default value.
+
+	class Bar {	// This is possible but pointless for now.
+	public:
+		Int test = 0;
+	};
+
+	Bar bar;
+
+protected:
+	Int y;
 };
 
 
@@ -10,5 +21,13 @@ Void main() {
 	Foo foo;
 
 	foo.x = 2;
+	foo.msg = "Bar";
 	print(foo.x + 1);
+	print(foo.msg);
+
+	Foo bar;
+	print(bar.msg);
+	bar.msg = "No, this is bar!";
+	print(foo.msg);
+	print(bar.msg);
 }

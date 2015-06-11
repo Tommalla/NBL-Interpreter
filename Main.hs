@@ -29,6 +29,7 @@ data DataType =
 	| TString String 
 	| TPointer DataType 
 	| TConst DataType
+	| TObject Ident
 	deriving (Show)
 
 data ParseResult = ExecOk | Error String
@@ -37,8 +38,10 @@ type Loc = Int
 type Env = Map Ident Loc
 type Store = Map Loc DataType
 type Func = ([Ident], CompoundStatement, Env)	-- The list is the list of argument names.
+type ClassTemplate = (Env, Env)
+type CEnv = Map Ident ClassTemplate
 type PEnv = Map Ident Func
-type StateType = (Env, PEnv, Store)
+type StateType = (Env, PEnv, CEnv, Store)
 type ContExec a = ContT StateType (ExceptT String (StateT StateType (IO))) a
 type ContS = ContExec ParseResult
 type ContExp = Exp -> ContExec Exp
@@ -61,37 +64,30 @@ data Operator =
 -- TODO move all those to monads?
 add :: DataType -> DataType -> DataType
 add (TInt a) (TInt b) = TInt (a + b)
-add _ _ = undefined
 
 
 sub :: DataType -> DataType -> DataType
 sub (TInt a) (TInt b) = TInt (a - b)
-sub _ _ = undefined
 
 
 mul :: DataType -> DataType -> DataType
 mul (TInt a) (TInt b) = TInt (a * b)
-mul _ _ = undefined
 
 
 div :: DataType -> DataType -> DataType
 div (TInt a) (TInt b) = TInt (a `Prelude.div` b)
-div _ _ = undefined
 
 
 mod :: DataType -> DataType -> DataType
 mod (TInt a) (TInt b) = TInt (a `Prelude.mod` b)
-mod _ _ = undefined
 
 
 or :: DataType -> DataType -> DataType
 or (TBool a) (TBool b) = TBool (a || b)
-or _ _ = undefined
 
 
 and :: DataType -> DataType -> DataType
 and (TBool a) (TBool b) = TBool (a && b)
-and _ _ = undefined
 
 
 boolOp :: Eq a => a -> (a -> a -> Bool) -> a -> DataType
@@ -102,13 +98,11 @@ eq :: DataType -> DataType -> DataType
 eq (TBool a) (TBool b) = boolOp a (==) b
 eq (TInt a) (TInt b) = boolOp a (==) b
 eq (TDouble a) (TDouble b) = boolOp a (==) b
-eq _ _ = undefined
 
 
 not :: DataType -> DataType
 not (TBool b) = TBool (Prelude.not b)
 not (TInt i) = TBool (i == 0)
-not _ = undefined
 
 
 neq :: DataType -> DataType -> DataType
@@ -118,13 +112,11 @@ neq = Main.eq . Main.not
 lt :: DataType -> DataType -> DataType
 lt (TInt a) (TInt b) = boolOp a (<) b
 lt (TDouble a) (TDouble b) = boolOp a (<) b
-lt _ _ = undefined
 
 
 gt :: DataType -> DataType -> DataType
 gt (TInt a) (TInt b) = boolOp a (>) b
 gt (TDouble a) (TDouble b) = boolOp a (>) b
-gt _ _ = undefined
 
 
 le :: DataType -> DataType -> DataType
@@ -149,14 +141,20 @@ getLoc ident env = env ! ident
 
 getVal :: Ident -> ContExec DataType
 getVal ident = do
-	(env, _, store) <- lift.lift $ get
+	(env, _, _, store) <- lift.lift $ get
 	return (store ! (getLoc ident env))
 
 
 getFunc :: Ident -> ContExec Func
 getFunc ident = do
-	(_, penv, _) <- lift.lift $ get
+	(_, penv, _, _) <- lift.lift $ get
 	return (penv ! ident)
+
+
+getClass :: Ident -> ContExec ClassTemplate
+getClass ident = do
+	(_, _, cenv, _) <- lift.lift $ get
+	return (cenv ! ident)
 
 
 getBadBreakCont :: ContS
@@ -199,14 +197,34 @@ createDefaultValue (Type specifier) = case specifier of
 	TypeDouble -> (TDouble 0.0)
 	TypeBool -> (TBool False)
 	TypeString -> (TString "")
+	TypeClass ident -> (TObject ident)
+
+
+stripConst :: DeclarationSpecifier -> TypeSpecifier
+stripConst (QualType _ specifier) = specifier
+stripConst (Type specifier) = specifier
+
+
+instantiateClass :: Ident -> Ident -> ContExec ParseResult
+instantiateClass objName className = do
+	(publ, priv) <- getClass className
+	mapM_ (\(varName, loc) -> do
+		(env, penv, cenv, store) <- lift.lift $ get
+		let newLoc = newloc store
+		lift.lift $ put (insert (TypeChecking.hashObjMember objName varName) newLoc env,
+				penv, cenv, insert newLoc (store ! loc) store)
+		) ((assocs publ) ++ (assocs priv))
+	return ExecOk
 
 
 allocateDirect :: DirectDeclarator -> DeclarationSpecifier -> ContExec ParseResult
 allocateDirect (Name ident) specifier = do
-	(env, penv, state) <- lift.lift $ get
+	(env, penv, cenv, state) <- lift.lift $ get
 	let loc = newloc state
-	lift.lift $ put (insert ident loc env, penv, insert loc (createDefaultValue specifier) state)
-	return ExecOk
+	lift.lift $ put (insert ident loc env, penv, cenv, insert loc (createDefaultValue specifier) state)
+	case stripConst specifier of
+		TypeClass className -> instantiateClass ident className
+		_ -> return ExecOk
 allocateDirect _ _ = lift $ throwError "This type of allocation is not supported yet."
 
 
@@ -288,7 +306,7 @@ executeExp (ExpAssign exp1 assignmentOperator exp2) = do
 	else
 		case res1 of
 			ExpVar ident -> do
-					(env, penv, state) <- lift.lift $ get
+					(env, penv, cenv, state) <- lift.lift $ get
 					let val = case res2 of 
 						-- TODO pointers
 						ExpConstant (ExpInt v) -> TInt v
@@ -296,7 +314,7 @@ executeExp (ExpAssign exp1 assignmentOperator exp2) = do
 						ExpConstant (ExpString s) -> TString s
 						-- FIXME remove this undef. by moving this to a function inside a monad.
 						_ -> undefined
-					lift . lift $ put (env, penv, update (\_ -> Just val) (getLoc ident env) state)
+					lift . lift $ put (env, penv, cenv, update (\_ -> Just val) (getLoc ident env) state)
 					return res2
 			_ -> lift $ throwError "Trying to assign to something that isn't an lvalue!"
 executeExp (ExpVar ident) = return (ExpVar ident)
@@ -333,14 +351,14 @@ executeExp (ExpFunc expr) = do
 	case res of
 		ExpVar ident -> do
 			(_, compoundStatement, funcEnv) <- getFunc ident
-			(env, penv, store) <- lift.lift $ get
-			lift.lift $ put (funcEnv, penv, store)
+			(env, penv, cenv, store) <- lift.lift $ get
+			lift.lift $ put (funcEnv, penv, cenv, store)
 			let breakC = getBadBreakCont
 			res <- callCC $ \retC -> do
 				executeStmt (CompS compoundStatement) retC breakC breakC
 				retC (ExpConstant (ExpInt 0))
-			(_, _, newStore) <- lift.lift $ get
-			lift.lift $ put (env, penv, newStore)
+			(_, _, _, newStore) <- lift.lift $ get
+			lift.lift $ put (env, penv, cenv, newStore)
 			return res
 		_ -> lift $ throwError "The function was not declared."
 executeExp (ExpFuncArg expr paramExprs) = do
@@ -348,35 +366,35 @@ executeExp (ExpFuncArg expr paramExprs) = do
 	case res of
 		ExpVar ident -> do
 			(paramIdents, compoundStatement, funcEnv) <- getFunc ident
-			(env, penv, store) <- lift.lift $ get
-			lift.lift $ put (funcEnv, penv, store)
+			(env, penv, cenv, store) <- lift.lift $ get
+			lift.lift $ put (funcEnv, penv, cenv, store)
 			mapM_ (\(e, i) -> bindParam i e env) (zip paramExprs paramIdents)
 			let breakC = getBadBreakCont
 			res <- callCC $ \retC -> do
 				executeStmt (CompS compoundStatement) retC breakC breakC
 				retC (ExpConstant (ExpInt 0))
-			(_, _, newStore) <- lift.lift $ get
-			lift.lift $ put (env, penv, newStore)
+			(_, _, _, newStore) <- lift.lift $ get
+			lift.lift $ put (env, penv, cenv, newStore)
 			return res
 		_ -> lift $ throwError "The function was not declared."
-
-executeExp _ = lift $ throwError "This type of expression is not supported yet."
+executeExp (ExpClassVar obj var) = return (ExpVar (hashObjMember obj var))
+executeExp e = lift $ throwError ((shows e) " - this type of expression is not supported.")
 
 
 bindParam :: Ident -> Exp -> Env -> ContExec ParseResult
 bindParam ident expr origEnv = do
-	(env, penv, store) <- lift.lift $ get
-	lift.lift $ put (origEnv, penv, store)
+	(env, penv, cenv, store) <- lift.lift $ get
+	lift.lift $ put (origEnv, penv, cenv, store)
 	res <- executeExp expr
-	(_, penv, store) <- lift.lift $ get
-	lift.lift $ put (origEnv, penv, store)
+	(_, penv, cenv, store) <- lift.lift $ get
+	lift.lift $ put (origEnv, penv, cenv, store)
 	let loc = newloc store
 	case res of 
 		ExpVar varIdent -> do
-			lift.lift $ put (insert ident loc env, penv, insert loc (store ! (origEnv ! varIdent)) store)
+			lift.lift $ put (insert ident loc env, penv, cenv, insert loc (store ! (origEnv ! varIdent)) store)
 			return ExecOk
 		ExpConstant constant -> do
-			lift.lift $ put (insert ident loc env, penv, insert loc (constantToDataType constant) store)
+			lift.lift $ put (insert ident loc env, penv, cenv, insert loc (constantToDataType constant) store)
 			return ExecOk
 		_ -> lift $ throwError "Unassignable parameter passed to the function."
 
@@ -428,14 +446,14 @@ executeLoopStmt (LoopWhile ctlExp s) retCont breakCont contCont = do
 executeLoopStmt (LoopDoWhile s ctlExp) retCont breakCont contCont = 
 	executeStmt (CompS (StmtComp [s, (LoopS (LoopWhile ctlExp s))])) retCont breakCont contCont
 executeLoopStmt (LoopForThree (Declarators specifiers initDeclarators) ctlExpStmt deltaExp s) retCont breakCont contCont = do
-	(env, penv, _) <- lift.lift $ get
+	(env, penv, cenv, _) <- lift.lift $ get
 	mapM_ (\initDeclarator -> allocateDeclarator initDeclarator specifiers) initDeclarators
 	let expr = case ctlExpStmt of 
 		ExtraSemicolon -> ExpConstant (ExpBool ValTrue)	-- For without condition equals while(True)
 		HangingExp e -> e
 	executeForInside expr deltaExp s retCont breakCont contCont
-	(_, _, store) <- lift.lift $ get
-	lift.lift $ put (env, penv, store)
+	(_, _, cenv, store) <- lift.lift $ get
+	lift.lift $ put (env, penv, cenv, store)
 	return ExecOk
 executeLoopStmt (LoopForTwo decl ctlExpStmt s) retCont breakCont contCont = 
 		executeLoopStmt (LoopForThree decl ctlExpStmt (ExpConstant (ExpInt 0)) s) retCont breakCont contCont 
@@ -450,10 +468,10 @@ executeStmt (ExprS (HangingExp exp)) _ _ _ = do
 	executeExp exp
 	return ExecOk
 executeStmt (CompS (StmtComp statements)) retCont breakCont contCont = do
-	(env, penv, _) <- lift.lift $ get 
+	(env, penv, cenv, _) <- lift.lift $ get 
 	mapM_ (\stmt -> executeStmt stmt retCont breakCont contCont) statements
-	(_, _, store) <- lift.lift $ get
-	lift.lift $ put (env, penv, store)
+	(_, _, _, store) <- lift.lift $ get
+	lift.lift $ put (env, penv, cenv, store)
 	return ExecOk
 executeStmt (CompS EmptyComp) _ _ _ = return ExecOk
 executeStmt (CtlS controlStatement) retCont breakCont contCont = 
@@ -485,7 +503,8 @@ executeStmtEntry stmt = do
 	let breakC = getBadBreakCont
 	callCC $ \retC -> do
 		executeStmt stmt retC breakC breakC
-		lift $ throwError "Dunno."
+		liftIO $ print "Warning: exiting top level function without using a return."
+		return (ExpConstant (ExpVoid))
 	return ExecOk
 
 
@@ -505,8 +524,8 @@ parametersToIdentList (MoreParamDecl paramDecls paramDecl) = do
 
 memorizeFunc :: Ident -> ([Ident], CompoundStatement) -> ContExec ParseResult
 memorizeFunc ident (paramIdents, s) = do
-	(env, penv, store) <- lift.lift $ get
-	lift.lift $ put (env, insert ident (paramIdents, s, env) penv, store)
+	(env, penv, cenv, store) <- lift.lift $ get
+	lift.lift $ put (env, insert ident (paramIdents, s, env) penv, cenv, store)
 	return ExecOk 
 
 
@@ -519,11 +538,49 @@ executeFunctionDeclaration (NoPointer (EmptyFuncDecl (Name ident))) compoundStat
 executeFunctionDeclaration declarator _ = lift $ throwError "Malformed function declaration. "
 
 
+-- True if the declaration block was public.
+executeClassBlockDeclaration :: ClassDecl -> ContExec Bool
+executeClassBlockDeclaration (PublicBlock decls) = do
+	mapM_ (executeDecl) decls
+	return True
+executeClassBlockDeclaration (ProtectedBlock decls) = do
+	mapM_ (executeDecl) decls
+	return False
+
+
+executeClassBlockDeclarationMeta :: ClassDecl -> Ident -> ContExec ParseResult
+executeClassBlockDeclarationMeta block name = do
+	(env, penv, _, _) <- lift.lift $ get
+	public <- executeClassBlockDeclaration block
+	(newEnv, newPEnv, cenv, _) <- lift.lift $ get 
+	let envDiff = newEnv \\ env
+	-- let penvDiff = newPEnv \\ penv TODO
+	-- Put any changes to cenv
+	mapM_ (\(k, e) -> do
+		(curEnv, curPEnv, curCenv, curStore) <- lift.lift $ get
+		let (priv, publ) = curCenv ! name
+		let newCenvEl = if public then
+				(priv, insert k e publ)
+			else
+				(insert k e priv, publ)
+		lift.lift $ put (curEnv, curPEnv, insert name newCenvEl curCenv, curStore) ) (assocs envDiff)
+
+	(_, _, finalCEnv, store) <- lift.lift $ get
+	lift.lift $ put (env, penv, finalCEnv, store)	-- Forget the binding from inside the class.
+
+	return ExecOk
+
+
 executeDecl :: Decl -> ContExec ParseResult
 executeDecl (Func declarationSpecifiers declarator compoundStatement) =
 	executeFunctionDeclaration declarator compoundStatement
 executeDecl (Declarators specifiers initDeclarators) = do
 	mapM_ (\initDeclarator -> allocateDeclarator initDeclarator specifiers) initDeclarators
+	return ExecOk
+executeDecl (Class name blocks) = do
+	(env, penv, cenv, store) <- lift.lift $ get
+	lift.lift $ put (env, penv, insert name (empty, empty) cenv, store)
+	mapM_ (\block -> executeClassBlockDeclarationMeta block name) blocks
 	return ExecOk
 
 
@@ -541,24 +598,24 @@ run :: String -> IO StateType
 run s = do case (pProg (myLexer s)) of
     		Bad err -> do 
     			print ("Parsing error: " ++ err)
-    			return (empty, empty, empty)
+    			return (empty, empty, empty, empty)
     		Ok p -> case types p of
     			Left str -> do
     				print ("Typechecking failed: " ++ str)
-    				return (empty, empty, empty)
+    				return (empty, empty, empty, empty)
     			Right _ ->	do-- This bit needs a refactor...
-    				res <- (runStateT (runExceptT (runContT (executeProg p) (\_ -> return (empty, empty, empty)))) 
-    							(empty, empty, empty))
+    				res <- (runStateT (runExceptT (runContT (executeProg p) 
+    						(\_ -> return (empty, empty, empty, empty)))) (empty, empty, empty, empty))
     				case res of
-    					((Right _), (e, penv, store)) -> do
+    					((Right _), (e, penv, cenv, store)) -> do
     						let mainFunc = Data.Map.lookup (Ident "main") penv
     						if (isNothing mainFunc) then do
     							print "No main declared."
-    							return (e, penv, store)
+    							return (e, penv, cenv, store)
     						else do
 								let (params, compoundStatement, env) = fromJust mainFunc
 								res2 <- (runStateT (runExceptT (runContT (executeStmtEntry (CompS compoundStatement)) 
-										(\_ -> return (env, penv, store)))) (env, penv, store))
+										(\_ -> return (env, penv, cenv, store)))) (env, penv, cenv, store))
 								case res2 of
 									((Right _), mem) -> do
 										print "Run successful"
@@ -573,7 +630,7 @@ run s = do case (pProg (myLexer s)) of
 
 main = do
   code <- getContents
-  (env, _, store) <- run code
+  (env, _, _, store) <- run code
   print $ ("Env:", env)
   print $ ("Store:", store)
  

@@ -1,7 +1,7 @@
 {- Tomasz Zakrzewski, tz336079
  - New Better Language Type Checking
  -}
-module TypeChecking (types) where
+module TypeChecking (types,hashObjMember) where
 
 import Control.Monad.Except
 import Control.Monad.State
@@ -159,6 +159,9 @@ typesMatch expr lType = case expr of
 		_ -> False
 	ExpConstant (ExpBool _) -> case lType of
 		Raw TypeBool -> True
+		_ -> False
+	ExpConstant (ExpString _) -> case lType of
+		Raw TypeString -> True
 		_ -> False
 	_ -> False
 
