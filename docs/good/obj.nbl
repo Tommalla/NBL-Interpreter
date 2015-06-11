@@ -11,9 +11,29 @@ public:
 	};
 
 	Bar bar;
+	Int func() {
+		return innerCalc();
+	}
+
+	Int func2(Int x, Int y) {
+		return x + y + func();
+	}
+
+	Int getY() {
+		return y;
+	}
+
+	Void setY(Int newY) {
+		y = newY;
+	}
 
 protected:
 	Int y;
+
+	Int innerCalc() {
+		//Secret value
+		return 42;
+	}
 };
 
 
@@ -28,6 +48,11 @@ Void main() {
 	Foo bar;
 	print(bar.msg);
 	bar.msg = "No, this is bar!";
-	print(foo.msg);
+	print(foo.func());
 	print(bar.msg);
+	print(foo.func2(5, 42));
+
+	foo.setY(-10);
+	print("uga?");
+	print(foo.getY());
 }

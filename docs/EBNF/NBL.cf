@@ -145,9 +145,12 @@ ExpFunc.       Exp14 ::= Exp14 "(" ")";
 ExpFuncArg.    Exp14 ::= Exp14 "(" [Exp2] ")";
 ExpPostInc.    Exp14 ::= Exp14 "++";
 ExpPostDec.    Exp14 ::= Exp14 "--";
+
+ExpClassFunc.  Exp14 ::= Ident"."Ident "(" ")";
+ExpClassFuncArg. Exp14 ::= Ident"."Ident "(" [Exp2] ")";
+ExpClassVar.	Exp15 ::= Ident"."Ident;
 ExpVar.        Exp15 ::= Ident;
 ExpConstant.      Exp15 ::= Constant;
-ExpClassVar.	Exp15 ::= Ident"."Ident;
 
 ExpChar.         Constant ::= Char;
 ExpDouble.      Constant ::= Double;

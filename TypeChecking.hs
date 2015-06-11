@@ -121,7 +121,7 @@ validateDirect (Name ident) specifier = do
 					CVar varType -> do
 						(currEnv, _, _) <- lift $ get
 						lift $ put (insert (hashObjMember ident member) varType currEnv, penv, cenv)
-					_ -> throwError "Not supported yet.") ((assocs priv) ++ (assocs publ))
+					_ -> return ()) ((assocs priv) ++ (assocs publ))
 			return TypeChecking.Ok
 		_ -> return TypeChecking.Ok
 validateDirect _ _ = throwError "This type of allocation is not supported yet."
@@ -153,19 +153,23 @@ validateBinaryOp exp1 exp2 toResType = do
 		Nothing -> throwError ((shows (t1Underlying, t2Underlying))"Expressions on different types are not supported.")
 
 
-typesMatch :: Exp -> DataType -> Bool
-typesMatch expr lType = case expr of 
-	-- TODO pointers
-	ExpConstant (ExpInt _) -> case lType of
-		Raw TypeInt -> True
-		_ -> False
-	ExpConstant (ExpBool _) -> case lType of
-		Raw TypeBool -> True
-		_ -> False
-	ExpConstant (ExpString _) -> case lType of
-		Raw TypeString -> True
-		_ -> False
-	_ -> False
+typesMatch :: Exp -> DataType -> Eval Bool
+typesMatch expr lType = do 
+	case expr of 
+		-- TODO pointers
+		ExpVar ident -> do
+			rType <- extractVarType ident
+			return (lType == rType)
+		ExpConstant (ExpInt _) -> case lType of
+			Raw TypeInt -> return True
+			_ -> return False
+		ExpConstant (ExpBool _) -> case lType of
+			Raw TypeBool -> return True
+			_ -> return False
+		ExpConstant (ExpString _) -> case lType of
+			Raw TypeString -> return True
+			_ -> return False
+		_ -> return False
 
 
 expToDataType :: Exp -> Eval DataType
@@ -201,6 +205,19 @@ isBoolean expr = do
 		_ -> False)
 
 
+-- 'Lifts' the hidden class members to the top-level env.
+exposeClassMemberTypes :: Ident -> Eval TypeCheckResult
+exposeClassMemberTypes className = do
+	(priv, publ) <- extractClassSign className
+	mapM_ (\(name, val) -> do
+		(env, penv, cenv) <- lift $ get
+		case val of
+			CVar var -> lift $ put (insert name var env, penv, cenv)
+			CFunc psign -> lift $ put (env, insert name psign penv, cenv)
+		) ((assocs priv) ++ (assocs publ))
+	return TypeChecking.Ok
+
+
 validateExp :: Exp -> Eval Exp
 validateExp (ExpAssign exp1 assignmentOperator exp2) = do
 	res1 <- validateExp exp1
@@ -210,7 +227,8 @@ validateExp (ExpAssign exp1 assignmentOperator exp2) = do
 				(env, penv, cenv) <- lift $ get
 				lType <- extractVarType ident
 				-- TODO add non-const assignments.
-				if (typesMatch res2 lType) then do
+				match <- typesMatch res2 lType
+				if match then do
 					lift $ put (insert ident lType env, penv, cenv)
 					return res2
 				else
@@ -290,7 +308,6 @@ validateExp (ExpFuncArg expr paramExprs) = do
 				throwError "Wrong types/quantity of arguments passed to the function"
 		_ -> throwError "Function execution: Does not type."
 validateExp (ExpClassVar obj var) = do
-	(env, penv, cenv) <- lift $ get
 	objType <- extractVarType obj
 	case objType of
 		(Raw (TypeClass className)) -> do
@@ -300,6 +317,28 @@ validateExp (ExpClassVar obj var) = do
 				CVar res -> do
 					return (ExpVar (hashObjMember obj var))
 				_ -> throwError "This type of class member is not supported yet."
+		_ -> throwError ("Not a valid class object: " ++ (show obj))
+validateExp (ExpClassFunc obj func) = do
+	objType <- extractVarType obj
+	case objType of
+		(Raw (TypeClass className)) -> do
+			let methodIdent = hashObjMember className func
+			(env, penv, cenv) <- lift $ get
+			
+			res <- validateExp (ExpFunc (ExpVar methodIdent))
+			lift $ put (env, penv, cenv)
+			return res
+		_ -> throwError ("Not a valid class object: " ++ (show obj))
+validateExp (ExpClassFuncArg obj func paramExprs) = do
+	objType <- extractVarType obj
+	case objType of
+		(Raw (TypeClass className)) -> do
+			let methodIdent = hashObjMember className func
+			(env, penv, cenv) <- lift $ get
+			
+			res <- validateExp (ExpFuncArg (ExpVar methodIdent) paramExprs)
+			lift $ put (env, penv, cenv)
+			return res
 		_ -> throwError ("Not a valid class object: " ++ (show obj))
 validateExp x = throwError ((shows x) "This type of expression is not supported yet.")
 
@@ -462,11 +501,12 @@ validateClassBlockDeclarationMeta block name statements = do
 				(priv, insert k (CFunc e) publ)
 			else
 				(insert k (CFunc e) priv, publ)
-		lift $ put (curEnv, curPEnv, insert name newCenvEl curCenv) ) (assocs penvDiff)
+		lift $ put (curEnv, insert (hashObjMember name k) e curPEnv, insert name newCenvEl curCenv) 
+		) (assocs penvDiff)
 
-	(_, _, finalCEnv) <- lift $ get
-	lift $ put (env, penv, finalCEnv)	-- Forget the binding from inside the class.
-
+	(_, finalPEnv, finalCEnv) <- lift $ get
+	lift $ put (env, finalPEnv \\ penvDiff, finalCEnv)	-- Forget the binding from inside the class.
+	-- But don't drop the hashed methods!
 	return TypeChecking.Ok
 
 
@@ -478,8 +518,12 @@ validateDecl (Declarators specifiers initDeclarators) _ = do
 	return TypeChecking.Ok
 validateDecl (Class name blocks) statements = do
 	(env, penv, cenv) <- lift $ get
-	lift $ put (env, penv, insert name (empty, empty) cenv)
-	mapM_ (\block -> validateClassBlockDeclarationMeta block name statements) blocks
+	if (not statements) then do
+		lift $ put (env, penv, insert name (empty, empty) cenv)
+		mapM_ (\block -> validateClassBlockDeclarationMeta block name False) blocks
+	else do
+		exposeClassMemberTypes name
+		mapM_ (\block -> validateClassBlockDeclaration block True) blocks
 	return TypeChecking.Ok
 
 

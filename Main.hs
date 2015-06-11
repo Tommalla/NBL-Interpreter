@@ -38,7 +38,7 @@ type Loc = Int
 type Env = Map Ident Loc
 type Store = Map Loc DataType
 type Func = ([Ident], CompoundStatement, Env)	-- The list is the list of argument names.
-type ClassTemplate = (Env, Env)
+type ClassTemplate = (Env, Env, PEnv)
 type CEnv = Map Ident ClassTemplate
 type PEnv = Map Ident Func
 type StateType = (Env, PEnv, CEnv, Store)
@@ -175,7 +175,6 @@ dataTypeToConstant (TDouble d) = ExpDouble d
 dataTypeToConstant (TInt i) = ExpInt i
 dataTypeToConstant (TBool b) = ExpBool (if b then ValTrue else ValFalse)
 dataTypeToConstant (TString s) = ExpString s
-dataTypeToConstant _ = undefined
 
 
 -- Extracts the underlying value. Works only for vars and consts.
@@ -189,7 +188,6 @@ getDirectValue _ = lift $ throwError "Cannot extract value from an expression."
 createDefaultValue :: DeclarationSpecifier -> DataType
 createDefaultValue (QualType qual specifier) = case qual of
 	Const -> (TConst (createDefaultValue (Type specifier)))
-	_ -> undefined
 createDefaultValue (Type specifier) = case specifier of
 	TypeVoid -> TVoid
 	TypeChar -> (TChar '\0')
@@ -207,7 +205,7 @@ stripConst (Type specifier) = specifier
 
 instantiateClass :: Ident -> Ident -> ContExec ParseResult
 instantiateClass objName className = do
-	(publ, priv) <- getClass className
+	(priv, publ, _) <- getClass className
 	mapM_ (\(varName, loc) -> do
 		(env, penv, cenv, store) <- lift.lift $ get
 		let newLoc = newloc store
@@ -307,14 +305,13 @@ executeExp (ExpAssign exp1 assignmentOperator exp2) = do
 		case res1 of
 			ExpVar ident -> do
 					(env, penv, cenv, state) <- lift.lift $ get
-					let val = case res2 of 
-						-- TODO pointers
-						ExpConstant (ExpInt v) -> TInt v
-						ExpConstant (ExpBool b) -> TBool (b == ValTrue)
-						ExpConstant (ExpString s) -> TString s
-						-- FIXME remove this undef. by moving this to a function inside a monad.
-						_ -> undefined
-					lift . lift $ put (env, penv, cenv, update (\_ -> Just val) (getLoc ident env) state)
+					val <- do case res2 of 
+							-- TODO pointers
+							ExpConstant (ExpInt v) -> return (TInt v)
+							ExpConstant (ExpBool b) -> return (TBool (b == ValTrue))
+							ExpConstant (ExpString s) -> return (TString s)
+							ExpVar ident -> getVal ident
+					lift.lift $ put (env, penv, cenv, update (\_ -> Just val) (getLoc ident env) state)
 					return res2
 			_ -> lift $ throwError "Trying to assign to something that isn't an lvalue!"
 executeExp (ExpVar ident) = return (ExpVar ident)
@@ -362,22 +359,46 @@ executeExp (ExpFunc expr) = do
 			return res
 		_ -> lift $ throwError "The function was not declared."
 executeExp (ExpFuncArg expr paramExprs) = do
-	res <- executeExp expr
-	case res of
-		ExpVar ident -> do
-			(paramIdents, compoundStatement, funcEnv) <- getFunc ident
-			(env, penv, cenv, store) <- lift.lift $ get
-			lift.lift $ put (funcEnv, penv, cenv, store)
-			mapM_ (\(e, i) -> bindParam i e env) (zip paramExprs paramIdents)
-			let breakC = getBadBreakCont
-			res <- callCC $ \retC -> do
-				executeStmt (CompS compoundStatement) retC breakC breakC
-				retC (ExpConstant (ExpInt 0))
-			(_, _, _, newStore) <- lift.lift $ get
-			lift.lift $ put (env, penv, cenv, newStore)
-			return res
-		_ -> lift $ throwError "The function was not declared."
+	(ExpVar ident) <- executeExp expr
+	(paramIdents, compoundStatement, funcEnv) <- getFunc ident
+	(env, penv, cenv, store) <- lift.lift $ get
+	lift.lift $ put (funcEnv, penv, cenv, store)
+	mapM_ (\(e, i) -> bindParam i e env) (zip paramExprs paramIdents)
+	let breakC = getBadBreakCont
+	res <- callCC $ \retC -> do
+		executeStmt (CompS compoundStatement) retC breakC breakC
+		retC (ExpConstant (ExpVoid))
+	(_, _, _, newStore) <- lift.lift $ get
+	lift.lift $ put (env, penv, cenv, newStore)
+	return res
 executeExp (ExpClassVar obj var) = return (ExpVar (hashObjMember obj var))
+executeExp (ExpClassFunc obj func) = do
+	(TObject className) <- getVal obj
+	(priv, publ, classMethods) <- getClass className
+	(env, penv, cenv, store) <- lift.lift $ get
+	lift.lift $ put ((env `union` priv) `union` publ, union classMethods penv, cenv, store)
+	(_, compoundStatement, _) <- getFunc func
+	let breakC = getBadBreakCont
+	res <- callCC $ \retC -> do
+		executeStmt (CompS compoundStatement) retC breakC breakC
+		retC (ExpConstant (ExpInt 0))
+	(_, _, _, newStore) <- lift.lift $ get
+	lift.lift $ put (env, penv, cenv, newStore)
+	return res
+executeExp (ExpClassFuncArg obj func paramExprs) = do
+	(TObject className) <- getVal obj
+	(priv, publ, classMethods) <- getClass className
+	(env, penv, cenv, store) <- lift.lift $ get
+	lift.lift $ put (env `union` priv `union` publ, union classMethods penv, cenv, store)
+	(paramIdents, compoundStatement, _) <- getFunc func
+	mapM_ (\(e, i) -> bindParam i e env) (zip paramExprs paramIdents)
+	let breakC = getBadBreakCont
+	res <- callCC $ \retC -> do
+		executeStmt (CompS compoundStatement) retC breakC breakC
+		retC (ExpConstant (ExpVoid))
+	(_, _, _, newStore) <- lift.lift $ get
+	lift.lift $ put (env, penv, cenv, newStore)
+	return res
 executeExp e = lift $ throwError ((shows e) " - this type of expression is not supported.")
 
 
@@ -485,7 +506,8 @@ executeStmt (JumpS ReturnVoid) retCont _ _ = do
 	return ExecOk
 executeStmt (JumpS (ReturnVal expr)) retCont _ _ = do
 	res <- executeExp expr
-	retCont res
+	val <- getDirectValue res
+	retCont (ExpConstant (dataTypeToConstant val))	
 	return ExecOk
 executeStmt (PrintS (Print expr)) _ _ _ = do
 	res <- executeExp expr
@@ -554,16 +576,22 @@ executeClassBlockDeclarationMeta block name = do
 	public <- executeClassBlockDeclaration block
 	(newEnv, newPEnv, cenv, _) <- lift.lift $ get 
 	let envDiff = newEnv \\ env
-	-- let penvDiff = newPEnv \\ penv TODO
+	let penvDiff = newPEnv \\ penv
 	-- Put any changes to cenv
 	mapM_ (\(k, e) -> do
 		(curEnv, curPEnv, curCenv, curStore) <- lift.lift $ get
-		let (priv, publ) = curCenv ! name
+		let (priv, publ, classFunc) = curCenv ! name
 		let newCenvEl = if public then
-				(priv, insert k e publ)
+				(priv, insert k e publ, classFunc)
 			else
-				(insert k e priv, publ)
+				(insert k e priv, publ, classFunc)
 		lift.lift $ put (curEnv, curPEnv, insert name newCenvEl curCenv, curStore) ) (assocs envDiff)
+
+	mapM_ (\(k, e) -> do
+		(curEnv, curPEnv, curCEnv, curStore) <- lift.lift $ get
+		let (priv, publ, classFunc) = curCEnv ! name
+		let newCEnvEl = (priv, publ, insert k e classFunc)
+		lift.lift $ put (curEnv, curPEnv, insert name newCEnvEl curCEnv, curStore)) (assocs penvDiff)
 
 	(_, _, finalCEnv, store) <- lift.lift $ get
 	lift.lift $ put (env, penv, finalCEnv, store)	-- Forget the binding from inside the class.
@@ -579,7 +607,7 @@ executeDecl (Declarators specifiers initDeclarators) = do
 	return ExecOk
 executeDecl (Class name blocks) = do
 	(env, penv, cenv, store) <- lift.lift $ get
-	lift.lift $ put (env, penv, insert name (empty, empty) cenv, store)
+	lift.lift $ put (env, penv, insert name (empty, empty, empty) cenv, store)
 	mapM_ (\block -> executeClassBlockDeclarationMeta block name) blocks
 	return ExecOk
 
