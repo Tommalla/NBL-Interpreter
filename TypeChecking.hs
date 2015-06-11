@@ -145,10 +145,12 @@ validateBinaryOp exp1 exp2 toResType = do
 	res2 <- validateExp exp2
 	t1 <- getVarOrConstType res1
 	t2 <- getVarOrConstType res2
-	tRes <- getCommonType t1 t2
+	let t1Underlying = stripConst t1
+	let t2Underlying = stripConst t2
+	tRes <- getCommonType t1Underlying t2Underlying
 	case tRes of
 		Just res -> toConstant (toResType res)
-		Nothing -> throwError ((shows (t1, t2))"Expressions on different types are not supported.")
+		Nothing -> throwError ((shows (t1Underlying, t2Underlying))"Expressions on different types are not supported.")
 
 
 typesMatch :: Exp -> DataType -> Bool
@@ -185,7 +187,7 @@ expToDataType expr = do
 isNumeric :: Exp -> Eval Bool
 isNumeric expr = do
 	resType <- expToDataType expr
-	return (case resType of
+	return (case stripConst resType of
 		Raw TypeInt -> True
 		Raw TypeDouble -> True
 		_ -> False)
@@ -194,7 +196,7 @@ isNumeric expr = do
 isBoolean :: Exp -> Eval Bool
 isBoolean expr = do
 	resType <- expToDataType expr
-	return (case resType of
+	return (case stripConst resType of
 		Raw TypeBool -> True
 		_ -> False)
 
