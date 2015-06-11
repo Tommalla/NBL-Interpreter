@@ -23,30 +23,56 @@ data TypeCheckResult = Ok | Failed
 type Env = Map Ident DataType
 type PSign = (DataType, [DataType]) -- The tuple is the return type and then params types.
 type PEnv = Map Ident PSign
-type Eval a = ExceptT String (State (Env, PEnv)) a
+data ClassMember = CFunc PSign | CVar DataType
+type ClassSign = (Map Ident ClassMember, Map Ident ClassMember)
+type CEnv = Map Ident ClassSign
+type Eval a = ExceptT String (State (Env, PEnv, CEnv)) a
+
+
+-- For convenience, we remember the class data members in the standard env with hashed names for the members.
+hashObjMember :: Ident -> Ident -> Ident
+hashObjMember (Ident objectName) (Ident memberName) = Ident (objectName ++ "$" ++ memberName)
 
 
 -- TODO need to incorporate pointers into this.
-getType :: DeclarationSpecifier -> Maybe DataType
-getType (Type specifier) = Just (Raw specifier)
+getType :: DeclarationSpecifier -> Eval DataType
+getType (Type specifier) = return (Raw specifier)
 getType (QualType qual specifier) = case qual of
 	Const -> do
 		innerType <- getType (Type specifier)
 		return (TConst innerType)
-	_ -> Nothing
+	_ -> throwError "Incorrect type."
 
 
-extractVarType :: Ident -> Env -> Maybe DataType
-extractVarType = Data.Map.lookup
+stripConst :: DataType -> DataType
+stripConst t = case t of
+	(TConst res) -> res
+	res -> res
+
+
+extractFromMap :: Ident -> Map Ident a -> String -> Eval a
+extractFromMap ident m err = case Data.Map.lookup ident m of
+	Just res -> return res
+	Nothing -> throwError ((shows ident) err)
+
+
+extractVarType :: Ident -> Eval DataType
+extractVarType ident = do
+	(env, _, _) <- lift $ get
+	extractFromMap ident env " - variable not declared."
 
 
 -- Extracts the signature of the function.
 extractFuncSign :: Ident -> Eval PSign
 extractFuncSign ident = do
-	(_, penv) <- lift $ get
-	case Data.Map.lookup ident penv of
-		Just res -> return res
-		Nothing -> throwError ((shows ident) " - function not declared.")
+	(_, penv, _) <- lift $ get
+	extractFromMap ident penv " - function not defined."
+
+
+extractClassSign :: Ident -> Eval ClassSign
+extractClassSign ident = do
+	(_, _, cenv) <- lift $ get
+	extractFromMap ident cenv " - object not declared."
 
 
 getVarOrConstType :: Exp -> Eval (DataType)
@@ -56,12 +82,9 @@ getVarOrConstType (ExpConstant constant) = return (case constant of
  	ExpInt _ -> (Raw TypeInt)
  	ExpBool  _ -> (Raw TypeBool))
 getVarOrConstType (ExpVar ident) = do
-	(env, _) <- lift $ get
-	let res = extractVarType ident env
-	if (isNothing res) then
-		throwError "Variable not declared."
-	else
-		return (fromJust res)
+	(env, _, _) <- lift $ get
+	res <- extractVarType ident
+	return res
 getVarOrConstType _ = throwError "Unknown DataType for var or constant."
 
 
@@ -86,13 +109,21 @@ getCommonType _ _ = return Nothing
 
 validateDirect :: DirectDeclarator -> DeclarationSpecifier -> Eval TypeCheckResult
 validateDirect (Name ident) specifier = do
-	(env, penv) <- lift $ get
-	let declType = getType specifier
-	if (isNothing declType) then
-		throwError "Incorrect type!"
-	else do
-		lift $ put ((insert ident (fromJust declType) env), penv)
-		return TypeChecking.Ok
+	(env, penv, cenv) <- lift $ get
+	declType <- getType specifier
+	lift $ put ((insert ident declType env), penv, cenv)
+	case stripConst declType of
+		Raw (TypeClass className) -> do
+			-- Allocate the types for members
+			(priv, publ) <- extractClassSign className
+			mapM_ (\(member, memberType) -> do 
+				case memberType of
+					CVar varType -> do
+						(currEnv, _, _) <- lift $ get
+						lift $ put (insert (hashObjMember ident member) varType currEnv, penv, cenv)
+					_ -> throwError "Not supported yet.") ((assocs priv) ++ (assocs publ))
+			return TypeChecking.Ok
+		_ -> return TypeChecking.Ok
 validateDirect _ _ = throwError "This type of allocation is not supported yet."
 
 
@@ -135,13 +166,11 @@ typesMatch expr lType = case expr of
 expToDataType :: Exp -> Eval DataType
 expToDataType expr = do
 	res <- validateExp expr
-	(env, _) <- lift $ get
+	(env, _, _) <- lift $ get
 	case res of
 		ExpVar ident -> do
-			let t = extractVarType ident env
-			case t of
-				Just res -> return res
-				Nothing -> throwError ((shows ident) " does not type.")
+			t <- extractVarType ident
+			return t
 		ExpConstant constant -> case constant of
 				ExpChar _ -> return (Raw TypeChar)
 				ExpInt _ -> return (Raw TypeInt)
@@ -173,17 +202,14 @@ validateExp (ExpAssign exp1 assignmentOperator exp2) = do
 	res2 <- validateExp exp2
 	case res1 of
 		ExpVar ident -> do
-				(env, penv) <- lift $ get
-				let lType = extractVarType ident env
-				if (isNothing lType) then
-					throwError "lvalue does not type."
-				else do
-					-- TODO add non-const assignments.
-					if (typesMatch res2 (fromJust lType)) then do
-						lift $ put (insert ident (fromJust lType) env, penv)
-						return res2
-					else
-						throwError ((shows (lType, res2)) "Assignment types don't match.")
+				(env, penv, cenv) <- lift $ get
+				lType <- extractVarType ident
+				-- TODO add non-const assignments.
+				if (typesMatch res2 lType) then do
+					lift $ put (insert ident lType env, penv, cenv)
+					return res2
+				else
+					throwError ((shows (lType, res2)) "Assignment types don't match.")
 		_ -> throwError "Trying to assign to something that isn't an lvalue!"
 	-- TODO handle all sorts of different assignment operators
 validateExp (ExpVar ident) = return (ExpVar ident)
@@ -235,7 +261,7 @@ validateExp (ExpFunc expr) = do
 	res <- validateExp expr
 	case res of
 		ExpVar ident -> do
-			(_, penv) <- lift $ get
+			(_, penv, _) <- lift $ get
 			(retType, paramTypes) <- extractFuncSign ident
 			if (Prelude.null paramTypes) then do
 				result <- toConstant retType
@@ -250,7 +276,7 @@ validateExp (ExpFuncArg expr paramExprs) = do
 		getVarOrConstType expFinal) paramExprs
 	case res of
 		ExpVar ident -> do
-			(_, penv) <- lift $ get
+			(_, penv, _) <- lift $ get
 			(retType, paramTypes) <- extractFuncSign ident
 			if (paramTypes == paramTypesAppl) then do
 				result <- toConstant retType
@@ -258,6 +284,18 @@ validateExp (ExpFuncArg expr paramExprs) = do
 			else 
 				throwError "Wrong types/quantity of arguments passed to the function"
 		_ -> throwError "Function execution: Does not type."
+validateExp (ExpClassVar obj var) = do
+	(env, penv, cenv) <- lift $ get
+	objType <- extractVarType obj
+	case objType of
+		(Raw (TypeClass className)) -> do
+			(_, publ) <- extractClassSign className
+			t <- extractFromMap var publ (" is not a public class member of class " ++ (show className))
+			case t of
+				CVar res -> do
+					return (ExpVar (hashObjMember obj var))
+				_ -> throwError "This type of class member is not supported yet."
+		_ -> throwError ("Not a valid class object: " ++ (show obj))
 validateExp x = throwError ((shows x) "This type of expression is not supported yet.")
 
 
@@ -338,11 +376,8 @@ parametersToTypesList (ParamDecl parameterDeclaration) = do
 		TypeAndParam specifiers declarator -> do 
 			case declarator of
 				NoPointer _ -> do
-					let t = getType specifiers
-					if (isNothing t) then
-						throwError "Cannot deduce the parameter type."
-					else
-						return [fromJust t]
+					t <- getType specifiers
+					return [t]
 				_ -> throwError "Unsupported declarator in parameters."
 parametersToTypesList (MoreParamDecl paramDecls paramDecl) = do
 	res1 <- parametersToTypesList paramDecls
@@ -350,45 +385,84 @@ parametersToTypesList (MoreParamDecl paramDecls paramDecl) = do
 	return ((head res2) : res1)
 
 
-validateFunctionStmt :: Maybe DataType -> Stmt -> Eval TypeCheckResult
+validateFunctionStmt :: DataType -> Stmt -> Eval TypeCheckResult
 validateFunctionStmt returnType s = do
-	if (isNothing returnType) then
-		throwError "Incorrect function return type!"
-	else do
-		mem <- lift $ get
-		validateStmt s False (fromJust returnType)
-		lift $ put mem
-		return TypeChecking.Ok
+	mem <- lift $ get
+	validateStmt s False returnType
+	lift $ put mem
+	return TypeChecking.Ok
 
 
 validateFunctionDeclaration :: DeclarationSpecifier -> Declarator -> CompoundStatement -> Bool -> Eval TypeCheckResult
 validateFunctionDeclaration declarationSpecifier (NoPointer (ParamFuncDecl (Name ident) parameterDeclarations)) 
 		compoundStatement statements = do
-	(env, penv) <- lift $ get
+	(env, penv, cenv) <- lift $ get
 	-- validate declarations of param variables
 	validateParamDecls parameterDeclarations
-	(tempEnv, _) <- lift $ get
-	let returnType = getType declarationSpecifier
+	(tempEnv, _, _) <- lift $ get
+	returnType <- getType declarationSpecifier
 	paramTypes <- parametersToTypesList parameterDeclarations
-	let penvNew = insert ident (fromJust returnType, paramTypes) penv
+	let penvNew = insert ident (returnType, paramTypes) penv
 	if statements then do
-		lift $ put (tempEnv, penvNew)
+		lift $ put (tempEnv, penvNew, cenv)
 		validateFunctionStmt returnType (CompS compoundStatement)
-		lift $ put (env, penvNew)
+		lift $ put (env, penvNew, cenv)
 		return TypeChecking.Ok
 	else do
-		lift $ put (env, penvNew)
+		lift $ put (env, penvNew, cenv)
 		return TypeChecking.Ok
 validateFunctionDeclaration declarationSpecifier (NoPointer (EmptyFuncDecl (Name ident))) compoundStatement 
 		statements = do
-	(env, penv) <- lift $ get
-	let returnType = getType declarationSpecifier
-	let penvNew = insert ident (fromJust returnType, []) penv
-	lift $ put (env, penvNew)	-- Have to put function in penv.
+	(env, penv, cenv) <- lift $ get
+	returnType <- getType declarationSpecifier
+	let penvNew = insert ident (returnType, []) penv
+	lift $ put (env, penvNew, cenv)	-- Have to put function in penv.
 	if statements then
 		validateFunctionStmt returnType (CompS compoundStatement)
 	else
 		return TypeChecking.Ok
+
+
+-- True if the declaration block was public.
+validateClassBlockDeclaration :: ClassDecl -> Bool -> Eval Bool
+validateClassBlockDeclaration (PublicBlock decls) statements = do
+	mapM_ (\decl -> validateDecl decl statements) decls
+	return True
+validateClassBlockDeclaration (ProtectedBlock decls) statements = do
+	mapM_ (\decl -> validateDecl decl statements) decls
+	return False
+
+
+validateClassBlockDeclarationMeta :: ClassDecl -> Ident -> Bool -> Eval TypeCheckResult
+validateClassBlockDeclarationMeta block name statements = do
+	(env, penv, _) <- lift $ get
+	public <- validateClassBlockDeclaration block statements
+	(newEnv, newPEnv, cenv) <- lift $ get 
+	let envDiff = newEnv \\ env
+	let penvDiff = newPEnv \\ penv
+	-- Put any changes to cenv
+	mapM_ (\(k, e) -> do
+		(curEnv, curPEnv, curCenv) <- lift $ get
+		let (priv, publ) = curCenv ! name
+		let newCenvEl = if public then
+				(priv, insert k (CVar e) publ)
+			else
+				(insert k (CVar e) priv, publ)
+		lift $ put (curEnv, curPEnv, insert name newCenvEl curCenv) ) (assocs envDiff)
+
+	mapM_ (\(k, e) -> do
+		(curEnv, curPEnv, curCenv) <- lift $ get
+		let (priv, publ) = curCenv ! name
+		let newCenvEl = if public then
+				(priv, insert k (CFunc e) publ)
+			else
+				(insert k (CFunc e) priv, publ)
+		lift $ put (curEnv, curPEnv, insert name newCenvEl curCenv) ) (assocs penvDiff)
+
+	(_, _, finalCEnv) <- lift $ get
+	lift $ put (env, penv, finalCEnv)	-- Forget the binding from inside the class.
+
+	return TypeChecking.Ok
 
 
 validateDecl :: Decl -> Bool -> Eval TypeCheckResult
@@ -396,6 +470,11 @@ validateDecl (Func declarationSpecifier declarator compoundStatement) statements
 	validateFunctionDeclaration declarationSpecifier declarator compoundStatement statements
 validateDecl (Declarators specifiers initDeclarators) _ = do
 	mapM_ (\initDeclarator -> validateDeclarator initDeclarator specifiers) initDeclarators
+	return TypeChecking.Ok
+validateDecl (Class name blocks) statements = do
+	(env, penv, cenv) <- lift $ get
+	lift $ put (env, penv, insert name (empty, empty) cenv)
+	mapM_ (\block -> validateClassBlockDeclarationMeta block name statements) blocks
 	return TypeChecking.Ok
 
 
@@ -412,6 +491,6 @@ validateProg (Program externalDeclarations) = do
 
 
 types :: Prog -> Either String ()
-types prog = case fst (runState (runExceptT (validateProg prog)) (empty, empty)) of
+types prog = case fst (runState (runExceptT (validateProg prog)) (empty, empty, empty)) of
 	(Right _) -> Right ()
 	(Left msg) -> Left msg 	-- TODO We should be returning an error from here. The type of 'types' needs to change.
