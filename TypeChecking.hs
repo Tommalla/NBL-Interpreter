@@ -307,39 +307,51 @@ validateExp (ExpFuncArg expr paramExprs) = do
 			else 
 				throwError "Wrong types/quantity of arguments passed to the function"
 		_ -> throwError "Function execution: Does not type."
-validateExp (ExpClassVar obj var) = do
-	objType <- extractVarType obj
-	case objType of
-		(Raw (TypeClass className)) -> do
-			(_, publ) <- extractClassSign className
-			t <- extractFromMap var publ (" is not a public class member of class " ++ (show className))
-			case t of
-				CVar res -> do
-					return (ExpVar (hashObjMember obj var))
-				_ -> throwError "This type of class member is not supported yet."
-		_ -> throwError ("Not a valid class object: " ++ (show obj))
-validateExp (ExpClassFunc obj func) = do
-	objType <- extractVarType obj
-	case objType of
-		(Raw (TypeClass className)) -> do
-			let methodIdent = hashObjMember className func
-			(env, penv, cenv) <- lift $ get
-			
-			res <- validateExp (ExpFunc (ExpVar methodIdent))
-			lift $ put (env, penv, cenv)
-			return res
-		_ -> throwError ("Not a valid class object: " ++ (show obj))
-validateExp (ExpClassFuncArg obj func paramExprs) = do
-	objType <- extractVarType obj
-	case objType of
-		(Raw (TypeClass className)) -> do
-			let methodIdent = hashObjMember className func
-			(env, penv, cenv) <- lift $ get
-			
-			res <- validateExp (ExpFuncArg (ExpVar methodIdent) paramExprs)
-			lift $ put (env, penv, cenv)
-			return res
-		_ -> throwError ("Not a valid class object: " ++ (show obj))
+validateExp (ExpClassVar objExp var) = do
+	objEval <- validateExp objExp
+	case objEval of
+		ExpVar obj -> do
+			objType <- extractVarType obj
+			case objType of
+				(Raw (TypeClass className)) -> do
+					(_, publ) <- extractClassSign className
+					t <- extractFromMap var publ (" is not a public class member of class " ++ (show className))
+					case t of
+						CVar res -> do
+							return (ExpVar (hashObjMember obj var))
+						_ -> throwError "This type of class member is not supported yet."
+				_ -> throwError ("Not a valid class object: " ++ (show obj))
+		_ -> throwError ("Not a valid class object: " ++ (show objExp))
+validateExp (ExpClassFunc objExp func) = do
+	objEval <- validateExp objExp
+	case objEval of
+		ExpVar obj -> do
+			objType <- extractVarType obj
+			case objType of
+				(Raw (TypeClass className)) -> do
+					let methodIdent = hashObjMember className func
+					(env, penv, cenv) <- lift $ get
+					
+					res <- validateExp (ExpFunc (ExpVar methodIdent))
+					lift $ put (env, penv, cenv)
+					return res
+				_ -> throwError ("Not a valid class object: " ++ (show obj))
+		_ -> throwError ("Not a valid class object: " ++ (show objExp))
+validateExp (ExpClassFuncArg objExp func paramExprs) = do
+	objEval <- validateExp objExp
+	case objEval of
+		ExpVar obj -> do
+			objType <- extractVarType obj
+			case objType of
+				(Raw (TypeClass className)) -> do
+					let methodIdent = hashObjMember className func
+					(env, penv, cenv) <- lift $ get
+					
+					res <- validateExp (ExpFuncArg (ExpVar methodIdent) paramExprs)
+					lift $ put (env, penv, cenv)
+					return res
+				_ -> throwError ("Not a valid class object: " ++ (show obj))
+		_ -> throwError ("Not a valid class object: " ++ (show objExp))
 validateExp x = throwError ((shows x) "This type of expression is not supported yet.")
 
 

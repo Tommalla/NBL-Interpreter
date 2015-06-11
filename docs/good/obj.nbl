@@ -42,7 +42,7 @@ protected:
 
 
 class FooAPI {
-protected:
+public:
 	Foo foo;
 public:
 	Int func() {
@@ -51,6 +51,10 @@ public:
 		print("Finished executing func!");
 		return result;
 	}
+
+	// Foo getFoo() {
+	// 	return foo;
+	// }
 };
 
 
@@ -76,4 +80,6 @@ Void main() {
 
 	FooAPI api;
 	print(api.func());
+	print(api.foo.getY());
+	// print(api.getFoo().func2(5, 1));
 }

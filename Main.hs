@@ -371,8 +371,11 @@ executeExp (ExpFuncArg expr paramExprs) = do
 	(_, _, _, newStore) <- lift.lift $ get
 	lift.lift $ put (env, penv, cenv, newStore)
 	return res
-executeExp (ExpClassVar obj var) = return (ExpVar (hashObjMember obj var))
-executeExp (ExpClassFunc obj func) = do
+executeExp (ExpClassVar objExp var) = do
+	(ExpVar obj) <- executeExp objExp
+	return (ExpVar (hashObjMember obj var))
+executeExp (ExpClassFunc objExp func) = do
+	(ExpVar obj) <- executeExp objExp
 	(TObject className) <- getVal obj
 	(priv, publ, classMethods) <- getClass className
 	(env, penv, cenv, store) <- lift.lift $ get
@@ -391,7 +394,8 @@ executeExp (ExpClassFunc obj func) = do
 	(_, _, _, newStore) <- lift.lift $ get
 	lift.lift $ put (env, penv, cenv, newStore)
 	return res
-executeExp (ExpClassFuncArg obj func paramExprs) = do
+executeExp (ExpClassFuncArg objExp func paramExprs) = do
+	(ExpVar obj) <- executeExp objExp
 	(TObject className) <- getVal obj
 	(priv, publ, classMethods) <- getClass className
 	(env, penv, cenv, store) <- lift.lift $ get
