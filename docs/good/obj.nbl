@@ -19,6 +19,10 @@ public:
 		return x + y + func();
 	}
 
+	Int func3() {
+		return y + 10;
+	}
+
 	Int getY() {
 		return y;
 	}
@@ -33,6 +37,19 @@ protected:
 	Int innerCalc() {
 		//Secret value
 		return 42;
+	}
+};
+
+
+class FooAPI {
+protected:
+	Foo foo;
+public:
+	Int func() {
+		print("Executing func!");
+		Int result = foo.func();
+		print("Finished executing func!");
+		return result;
 	}
 };
 
@@ -54,5 +71,9 @@ Void main() {
 
 	foo.setY(-10);
 	print("uga?");
+	print(bar.getY());
 	print(foo.getY());
+
+	FooAPI api;
+	print(api.func());
 }

@@ -376,7 +376,13 @@ executeExp (ExpClassFunc obj func) = do
 	(TObject className) <- getVal obj
 	(priv, publ, classMethods) <- getClass className
 	(env, penv, cenv, store) <- lift.lift $ get
-	lift.lift $ put ((env `union` priv) `union` publ, union classMethods penv, cenv, store)
+	let common = union priv publ
+	mapM_ (\var -> do
+		(currEnv, _, _, store) <- lift.lift $ get
+		lift.lift $ put (insert var (env ! (hashObjMember obj var)) env, penv, cenv, store)
+		) (keys common)
+	(env, _, _, _) <- lift.lift $ get
+	lift.lift $ put (env, union classMethods penv, cenv, store)
 	(_, compoundStatement, _) <- getFunc func
 	let breakC = getBadBreakCont
 	res <- callCC $ \retC -> do
@@ -389,7 +395,13 @@ executeExp (ExpClassFuncArg obj func paramExprs) = do
 	(TObject className) <- getVal obj
 	(priv, publ, classMethods) <- getClass className
 	(env, penv, cenv, store) <- lift.lift $ get
-	lift.lift $ put (env `union` priv `union` publ, union classMethods penv, cenv, store)
+	let common = union priv publ
+	mapM_ (\var -> do
+		(currEnv, _, _, store) <- lift.lift $ get
+		lift.lift $ put (insert var (env ! (hashObjMember obj var)) env, penv, cenv, store)
+		) (keys common)
+	(env, _, _, _) <- lift.lift $ get
+	lift.lift $ put (env, union classMethods penv, cenv, store)
 	(paramIdents, compoundStatement, _) <- getFunc func
 	mapM_ (\(e, i) -> bindParam i e env) (zip paramExprs paramIdents)
 	let breakC = getBadBreakCont
