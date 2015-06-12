@@ -323,18 +323,7 @@ validateExp (ExpPreOp op expr) = do
 			else
 				throwError "Not a boolean type."
 		_ -> throwError "This type of unary operation is not supported yet."
-validateExp (ExpFunc expr) = do
-	res <- validateExp expr
-	case res of
-		ExpVar ident -> do
-			(_, penv, _) <- lift $ get
-			(retType, paramTypes) <- extractFuncSign ident
-			if (Prelude.null paramTypes) then do
-				result <- toConstant retType
-				return result
-			else 
-				throwError "Not enought arguments passed to the function."
-		_ -> throwError ("Function execution: Does not type." ++ (show res))
+validateExp (ExpFunc expr) = validateExp (ExpFuncArg expr [])
 validateExp (ExpFuncArg expr paramExprs) = do
 	res <- validateExp expr
 	paramTypesAppl <- mapM (\e -> do 
@@ -365,21 +354,7 @@ validateExp (ExpClassVar objExp var) = do
 						_ -> throwError "This type of class member is not supported yet."
 				_ -> throwError ("Not a valid class object: " ++ (show obj))
 		_ -> throwError ("Not a valid class object: " ++ (show objExp))
-validateExp (ExpClassFunc objExp func) = do
-	objEval <- validateExp objExp
-	case objEval of
-		ExpVar obj -> do
-			objType <- extractVarType obj
-			case objType of
-				(Raw (TypeClass className)) -> do
-					let methodIdent = hashObjMember className func
-					(env, penv, cenv) <- lift $ get
-					
-					res <- validateExp (ExpFunc (ExpVar methodIdent))
-					lift $ put (env, penv, cenv)
-					return res
-				_ -> throwError ("Not a valid class object: " ++ (show obj))
-		_ -> throwError ("Not a valid class object: " ++ (show objExp))
+validateExp (ExpClassFunc objExp func) = validateExp (ExpClassFuncArg objExp func [])
 validateExp (ExpClassFuncArg objExp func paramExprs) = do
 	objEval <- validateExp objExp
 	case objEval of
@@ -502,14 +477,12 @@ validateFunctionDeclaration declarationSpecifier (NoPointer (ParamFuncDecl (Name
 	returnType <- getType declarationSpecifier
 	paramTypes <- parametersToTypesList parameterDeclarations
 	let penvNew = insert ident (returnType, paramTypes) penv
-	if statements then do
+	when statements (do
 		lift $ put (tempEnv, penvNew, cenv)
 		validateFunctionStmt returnType (CompS compoundStatement)
-		lift $ put (env, penvNew, cenv)
-		return TypeChecking.Ok
-	else do
-		lift $ put (env, penvNew, cenv)
-		return TypeChecking.Ok
+		return ())
+	lift $ put (env, penvNew, cenv)
+	return TypeChecking.Ok
 validateFunctionDeclaration declarationSpecifier (NoPointer (EmptyFuncDecl (Name ident))) compoundStatement 
 		statements = do
 	(env, penv, cenv) <- lift $ get
