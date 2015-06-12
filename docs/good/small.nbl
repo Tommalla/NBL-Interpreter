@@ -88,5 +88,18 @@ Int main() {
 
 	z = foo(foo(z));
 
+	Int var = 7;
+
+	Void f2() {
+		print(var);
+	}
+
+	Void f1() {
+		Int var = 9;
+		f2();
+	}
+
+	f1();
+
 	return z;
 }

@@ -458,7 +458,7 @@ validateStmt x _ _ = throwError ((shows x) " This type of statement is not suppo
 validateParamDecls :: ParameterDeclarations -> Eval TypeCheckResult
 validateParamDecls (ParamDecl parameterDeclaration) = do 
 	case parameterDeclaration of
-		OnlyType _ -> return TypeChecking.Ok -- FIXME?
+		OnlyType _ -> return TypeChecking.Ok
 		TypeAndParam declarationSpecifier declarator -> do
 			case declarator of
 				NoPointer directDeclarator -> validateDirect directDeclarator declarationSpecifier

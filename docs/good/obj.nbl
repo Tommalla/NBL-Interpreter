@@ -7,7 +7,7 @@ public:
 
 	class Bar {	// This is possible but pointless for now.
 	public:
-		Int test = 0;
+		Int test = 100;
 	};
 
 	Bar bar;
@@ -81,5 +81,6 @@ Void main() {
 	FooAPI api;
 	print(api.func());
 	print(api.foo.getY());
+	print(foo.bar.test);
 	// print(api.getFoo().func2(5, 1));
 }
