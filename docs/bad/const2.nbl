@@ -1,0 +1,11 @@
+// Const obj example
+class Foo {
+public:
+	const Int x = 2;
+};
+
+Int main() {
+	Foo foo;
+	foo.x = 3;
+	return 0;
+}
